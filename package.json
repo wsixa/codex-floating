@@ -1,0 +1,49 @@
+{
+  "name": "codex-floating-assistant",
+  "version": "0.1.0",
+  "description": "A local Windows floating assistant for controlling Codex through Playwright.",
+  "main": "dist-electron/main/main.js",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "dev": "npm run build:main && node scripts/dev.cjs",
+    "build": "npm run build:main && vite build",
+    "build:main": "tsc -p tsconfig.main.json",
+    "lint": "eslint src scripts vite.config.ts",
+    "start": "electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.main.json --noEmit",
+    "test": "vitest run --config vitest.config.ts",
+    "smoke": "tsx scripts/smoke-playwright.ts",
+    "smoke:api": "tsx scripts/smoke-api.ts",
+    "smoke:app-server": "tsx scripts/smoke-app-server.ts",
+    "smoke:codex-desktop": "tsx scripts/smoke-codex-desktop.ts",
+    "smoke:electron": "node scripts/smoke-electron.cjs",
+    "perf": "tsx scripts/measure-performance.ts",
+    "screenshot": "tsx scripts/screenshot-renderer.ts"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.55.0",
+    "electron": "^44.0.0",
+    "lucide-react": "^0.468.0",
+    "playwright": "^1.55.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.7",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "eslint": "^9.17.0",
+    "jsdom": "^26.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0",
+    "vitest": "^3.0.5",
+    "wait-on": "^8.0.3"
+  }
+}

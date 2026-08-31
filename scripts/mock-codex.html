@@ -1,0 +1,26 @@
+<!doctype html>
+<html><body>
+  <nav aria-label="History">
+    <button aria-label="New conversation" id="new">New conversation</button>
+    <div data-conversation-item="alpha"><a href="/c/alpha" data-conversation-id="alpha">Alpha session</a><button type="button" aria-label="More options for Alpha" data-menu-for="alpha">More</button></div>
+    <div data-conversation-item="beta"><a href="/c/beta" data-conversation-id="beta">Beta session</a><button type="button" aria-label="More options for Beta" data-menu-for="beta">More</button></div>
+  </nav>
+  <div id="menu-root"></div>
+  <main><h1>Mock Codex</h1><div id="messages"></div><input type="file" aria-label="Upload image" id="file" /><textarea aria-label="Message" placeholder="Message Codex"></textarea><button aria-label="Send" id="send">Send</button></main>
+  <script>
+    const messages = document.querySelector('#messages'); const input = document.querySelector('textarea'); const file = document.querySelector('#file');
+    document.querySelector('#send').onclick = () => { const p = document.createElement('p'); p.textContent = input.value || (file.files[0] ? 'uploaded:' + file.files[0].name : ''); messages.append(p); input.value = ''; };
+    const menuRoot = document.querySelector('#menu-root');
+    document.querySelector('#new').onclick = () => { history.pushState({}, '', '/c/new'); document.title = 'New conversation'; };
+    for (const link of document.querySelectorAll('a')) link.onclick = (event) => { event.preventDefault(); history.pushState({}, '', link.getAttribute('href')); document.title = link.textContent; };
+    for (const button of document.querySelectorAll('[data-menu-for]')) button.onclick = () => {
+      const id = button.getAttribute('data-menu-for');
+      menuRoot.innerHTML = '<div role="menu"><button role="menuitem" aria-label="Delete conversation">Delete</button></div>';
+      menuRoot.querySelector('[role="menuitem"]').onclick = () => {
+        document.querySelector(`[data-conversation-item="${id}"]`)?.remove();
+        if (location.pathname === `/c/${id}`) { history.pushState({}, '', '/c/new'); document.title = 'New conversation'; }
+        menuRoot.innerHTML = '';
+      };
+    };
+  </script>
+</body></html>

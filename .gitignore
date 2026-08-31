@@ -1,0 +1,10 @@
+node_modules/
+.npm-cache/
+dist/
+dist-electron/
+output/
+.playwright-daemon/
+.playwright-profile/
+*.log
+.env
+.env.*

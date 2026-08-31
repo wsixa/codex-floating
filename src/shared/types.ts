@@ -224,6 +224,7 @@ export interface IpcApi {
   openCodex(): Promise<void>;
   openSettings(): Promise<void>;
   openModelMenu(): Promise<void>;
+  setOfficialPageOverlayOpen(open: boolean): Promise<void>;
   onState(listener: (state: AppState) => void): () => void;
 }
 
@@ -251,6 +252,7 @@ export const IPC_CHANNELS = {
   openCodex: 'app:open-codex',
   openSettings: 'app:open-settings',
   openModelMenu: 'app:open-model-menu',
+  setOfficialPageOverlayOpen: 'app:set-official-page-overlay-open',
   stateEvent: 'app:state-event',
 } as const;
 

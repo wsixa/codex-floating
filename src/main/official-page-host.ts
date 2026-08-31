@@ -1,4 +1,5 @@
-import { BrowserView, type BrowserWindow } from 'electron';
+import { BrowserView, type BrowserWindow, type WebContents } from 'electron';
+import type { Cookie } from 'playwright';
 
 const TOOLBAR_HEIGHT = 48;
 const LOAD_TIMEOUT_MS = 20_000;
@@ -80,18 +81,24 @@ export class OfficialPageHost {
     window.on('closed', () => this.dispose());
   }
 
-  async load(url: string): Promise<void> {
+  async load(url: string, cookies: readonly Cookie[] = []): Promise<void> {
     const target = validatePageUrl(url);
     const generation = ++this.loadGeneration;
     this.loaded = false;
     this.compactScript = null;
     this.detach();
     try {
-      const loadPromise = this.view.webContents.loadURL(target);
-      // Keep the rejection handler attached even when the timeout wins the
-      // race; Electron may reject the original navigation later.
-      void loadPromise.catch(() => undefined);
-      await Promise.race([loadPromise, timeout(LOAD_TIMEOUT_MS, `Timed out loading ${target}.`)]);
+      await this.syncCookies(cookies, target);
+      const documentReady = waitForDocumentReady(this.view.webContents, LOAD_TIMEOUT_MS, `Timed out loading ${target}.`);
+      try {
+        const loadPromise = this.view.webContents.loadURL(target);
+        // Keep the rejection handler attached when DOM readiness wins the
+        // race; Electron may reject the original navigation later.
+        void loadPromise.catch(() => undefined);
+        await Promise.race([loadPromise, documentReady.promise]);
+      } finally {
+        documentReady.cancel();
+      }
       if (generation !== this.loadGeneration || this.disposed) return;
       await this.injectCompactMode();
       if (generation !== this.loadGeneration || this.disposed) return;
@@ -160,6 +167,28 @@ export class OfficialPageHost {
     this.view.setBounds(this.bounds());
   }
 
+  private async syncCookies(cookies: readonly Cookie[], fallbackUrl: string): Promise<void> {
+    if (this.view.webContents.isDestroyed() || cookies.length === 0) return;
+    const target = new URL(fallbackUrl);
+    await Promise.all(cookies.map(async (cookie) => {
+      const domain = cookie.domain.replace(/^\./u, '');
+      if (!domain) return;
+      const scheme = cookie.secure ? 'https:' : target.protocol;
+      const url = `${scheme}//${domain}${cookie.path || '/'}`;
+      await this.view.webContents.session.cookies.set({
+        url,
+        name: cookie.name,
+        value: cookie.value,
+        domain: cookie.domain,
+        path: cookie.path || '/',
+        secure: cookie.secure,
+        httpOnly: cookie.httpOnly,
+        expirationDate: cookie.expires > 0 ? cookie.expires : undefined,
+        sameSite: mapSameSite(cookie.sameSite),
+      }).catch(() => undefined);
+    }));
+  }
+
   private detach(owner = this.window): void {
     if (!this.attached) return;
     if (owner && !owner.isDestroyed()) owner.removeBrowserView(this.view);
@@ -182,10 +211,37 @@ function validatePageUrl(value: string): string {
   }
 }
 
-function timeout(milliseconds: number, message: string): Promise<never> {
-  return new Promise((_, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), milliseconds);
+function waitForDocumentReady(
+  webContents: WebContents,
+  milliseconds: number,
+  message: string,
+): { promise: Promise<void>; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let ready: () => void = () => undefined;
+  const cancel = () => {
+    webContents.removeListener('dom-ready', ready);
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  const promise = new Promise<void>((resolve, reject) => {
+    ready = () => {
+      cancel();
+      resolve();
+    };
+    timer = setTimeout(() => {
+      cancel();
+      reject(new Error(message));
+    }, milliseconds);
     // Do not keep the Electron main process alive solely for an abandoned load.
     timer.unref?.();
+    webContents.once('dom-ready', ready);
   });
+  return { promise, cancel };
+}
+
+function mapSameSite(value: Cookie['sameSite']): 'unspecified' | 'no_restriction' | 'lax' | 'strict' {
+  if (value === 'None') return 'no_restriction';
+  if (value === 'Strict') return 'strict';
+  if (value === 'Lax') return 'lax';
+  return 'unspecified';
 }

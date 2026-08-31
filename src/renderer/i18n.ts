@@ -61,8 +61,10 @@ export interface UiText {
   ccswitchModeHint: string;
   saving: string;
   model: string;
+  modelShort: string;
   refreshModels: string;
   modelsLoading: string;
+  modelsRefreshed: string;
   modelsEmpty: string;
   modelsUnavailable: string;
   currentModel: string;
@@ -80,6 +82,9 @@ export interface UiText {
   ready: string;
   loading: string;
   unknownError: string;
+  moreActions: string;
+  dismissError: string;
+  closePanel: string;
 }
 
 const zhCN: UiText = {
@@ -149,9 +154,11 @@ const zhCN: UiText = {
   officialModeHint: '使用官方 Codex 页面登录，保留网页会话和 Playwright 自动化。',
   ccswitchModeHint: '连接正在运行的官方 Codex Desktop，共享其会话；请求沿用官方客户端的 CCSwitch 路由。',
   saving: '保存中…',
-  model: '上游模型',
+  model: '模型',
+  modelShort: '模型',
   refreshModels: '刷新模型列表',
   modelsLoading: '正在读取模型列表…',
+  modelsRefreshed: '模型列表已刷新',
   modelsEmpty: '上游暂未返回模型；配置 CCSwitch 上游后点击刷新。',
   modelsUnavailable: '模型列表暂不可用，将继续使用当前模型。',
   currentModel: '当前配置',
@@ -169,6 +176,9 @@ const zhCN: UiText = {
   ready: '就绪',
   loading: '正在启动助手…',
   unknownError: '发生未知错误',
+  moreActions: '更多操作',
+  dismissError: '关闭错误提示',
+  closePanel: '关闭面板',
 };
 
 const enUS: UiText = {
@@ -238,9 +248,11 @@ const enUS: UiText = {
   officialModeHint: 'Use the official Codex page with a persistent signed-in browser session.',
   ccswitchModeHint: 'Attach to the running official Codex Desktop and share its threads; requests use its CCSwitch route.',
   saving: 'Saving…',
-  model: 'Upstream model',
+  model: 'Model',
+  modelShort: 'Model',
   refreshModels: 'Refresh model list',
   modelsLoading: 'Loading model list…',
+  modelsRefreshed: 'Model list refreshed',
   modelsEmpty: 'No upstream models returned; configure an upstream in CCSwitch and refresh.',
   modelsUnavailable: 'Model list is unavailable; the current model will remain usable.',
   currentModel: 'Current configuration',
@@ -258,6 +270,9 @@ const enUS: UiText = {
   ready: 'ready',
   loading: 'Starting assistant…',
   unknownError: 'An unknown error occurred',
+  moreActions: 'More actions',
+  dismissError: 'Dismiss error',
+  closePanel: 'Close panel',
 };
 
 export function getUiText(language: Language): UiText {

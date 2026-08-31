@@ -34,6 +34,7 @@ const api: IpcApi = {
   openCodex: () => ipcRenderer.invoke(IPC_CHANNELS.openCodex),
   openSettings: () => ipcRenderer.invoke(IPC_CHANNELS.openSettings),
   openModelMenu: () => ipcRenderer.invoke(IPC_CHANNELS.openModelMenu),
+  setOfficialPageOverlayOpen: (open: boolean) => ipcRenderer.invoke(IPC_CHANNELS.setOfficialPageOverlayOpen, open),
   onState: (listener: (state: AppState) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, state: AppState) => listener(state);
     ipcRenderer.on(IPC_CHANNELS.stateEvent, handler);

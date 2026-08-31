@@ -43,7 +43,7 @@ npm run dev
 
 CCSwitch 模式会连接官方 Codex app-server，不会要求在助手中登录 Codex 网页。窗口状态会显示 Codex 客户端同步，消息输入框顶部的模型下拉框来自官方 app-server；选择模型后会立即保存并重新连接。CCSwitch 内部地址和凭据不会显示在助手中。
 
-在软件中打开 `设置`，通过 `连接方式` 下拉框切换 `CCSwitch API` 与 `官方 Codex 登录`。切换会立即断开旧连接、连接新方式并持久化，不需要重启。官方模式现在是“悬浮窗口外壳 + 官方页面内嵌”：BrowserView 承载官方 Codex 页面，主进程通过现有 Playwright/CDP 连接执行操作，并注入精简 CSS/JS 隐藏侧边栏、顶部栏和右侧面板，只保留官方消息流、输入框和原生交互。历史消息、会话导航、标题和滚动完全由官方页面维护，助手不再复制消息列表或缓存消息。工具栏中的新建、重新连接、打开官方页面、截屏和设置按钮仍通过 IPC/CDP 调用官方能力。CCSwitch/app-server 仍作为 API 模式的回退路径；模型来源按 `/v1/models` 与 Codex catalog 合并，失败时不影响已建立的会话。
+在软件中打开 `设置`，通过 `连接方式` 下拉框切换 `CCSwitch API` 与 `官方 Codex 登录`。切换会立即断开旧连接、连接新方式并持久化，不需要重启。官方模式现在是“悬浮窗口外壳 + 官方页面内嵌”：BrowserView 承载官方 Codex 页面，主进程通过现有 Playwright/CDP 连接执行操作，并注入精简 CSS/JS 隐藏侧边栏、顶部栏和右侧面板，只保留官方消息流、输入框和原生交互。历史消息、会话导航、标题和滚动完全由官方页面维护，助手不再复制消息列表或缓存消息。工具栏中的新建、重新连接、打开官方页面、截屏和设置按钮仍通过 IPC/CDP 调用官方能力。BrowserView 只会在页面加载并完成精简注入后挂载；加载失败、超时或渲染进程退出时会立即卸载，因此工具栏和错误信息不会再被空白视图覆盖。Playwright 持久化会话的 Cookie 仅在 Electron 主进程内同步给内嵌页面，不会广播到 renderer 或写入日志。CCSwitch/app-server 仍作为 API 模式的回退路径；模型来源按 `/v1/models` 与 Codex catalog 合并，失败时不影响已建立的会话。
 
 ### 切换界面语言
 
@@ -137,11 +137,11 @@ src/
     codex-app-server.ts   官方 Codex app-server JSON-RPC、线程同步、模型与附件输入
     api-service.ts        兼容 Responses API 的独立诊断/回退服务（不作为默认同步通道）
     playwright-service.ts 持久化浏览器上下文生命周期和状态
-    codex-adapter.ts     Codex 语义化选择器和页面操作
+    official-page-host.ts Electron BrowserView 生命周期、会话同步和精简 CSS/JS 注入
+    codex-adapter.ts      Codex 语义化选择器和页面操作
     config-service.ts    默认值、校验、原子化持久化
-  preload.ts              隔离上下文中的类型化桥接
-    official-page-host.ts   Electron BrowserView 外壳、CDP 注入精简 CSS/JS
-    renderer/                React 工具栏壳、API 回退输入和中文/英文语言包
+  preload.ts             隔离上下文中的类型化桥接
+  renderer/              React 工具栏壳、API 回退输入和中文/英文语言包
     i18n.ts               中文/英文文案及运行时错误本地化
   shared/types.ts          IPC 契约、状态模型、校验器（含语言配置）
 scripts/                    确定性的 Playwright 冒烟/性能脚本
@@ -160,7 +160,7 @@ scripts/                    确定性的 Playwright 冒烟/性能脚本
   npm run dev
   ```
 
-  本项目已默认关闭 Electron GPU 加速，并在 renderer 加载完成后强制显示窗口；启动日志应出现 `window ... visible=true` 或 `VITE ... ready`。如果仍失败，请把终端中 `Renderer load failed`、`Preload failed` 或 `GPU process` 开头的行发出来。
+  本项目已默认关闭 Electron GPU 加速，并在 renderer 加载完成后强制显示窗口；启动日志应出现 `window ... visible=true` 或 `VITE ... ready`。内嵌页失败时外壳仍会保持可见，并在底部显示 `Embedded Codex page failed to load`，可以点击重新连接重试。如果仍失败，请检查终端中的 `[official-page] load failed`、`Renderer load failed`、`Preload failed` 或 `GPU process` 行。
 - 如果 `5173` 被占用，不需要手动修改代码；启动脚本会自动使用下一个可用端口。也可以先设置 `$env:VITE_PORT = "5200"`。
 - 如果状态显示 `Sign in required`，请点击 `Open Codex`，手动完成登录，然后点击 `Reconnect`。日志不会写入凭据、Cookie、Token、完整对话或原始截图。
 - 如果使用 CCSwitch 模式并显示 `Codex CLI was not found` 或 app-server 连接错误，请确认官方 Codex Desktop/CLI 已安装、`codex` 命令可用，并确认 CCSwitch 正在运行，然后点击 `Reconnect`。助手设置不会显示 CCSwitch 地址、路由或凭据。

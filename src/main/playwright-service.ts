@@ -1,4 +1,4 @@
-import { chromium, type BrowserContext, type Page } from 'playwright';
+import { chromium, type BrowserContext, type Cookie, type Page } from 'playwright';
 import fs from 'node:fs';
 import type { AppConfig, AttachmentPayload, CapturePayload, ConversationSummary, ConnectionState, PageState } from '../shared/types';
 import { CodexAdapter } from './codex-adapter';
@@ -83,6 +83,16 @@ export class PlaywrightService {
     this.context = null;
     if (context) await context.close().catch(() => undefined);
     if (this.status.state !== 'error') this.setStatus({ state: 'disconnected', message: 'Disconnected', page: null });
+  }
+
+  /**
+   * Return cookies from the persistent Playwright session for the embedded
+   * BrowserView. Cookie values stay in the main process and are never sent to
+   * the React renderer or written to logs.
+   */
+  async getSessionCookies(url?: string): Promise<Cookie[]> {
+    if (!this.context) return [];
+    return this.context.cookies(url);
   }
 
   async refreshStatus(): Promise<PlaywrightStatus> {

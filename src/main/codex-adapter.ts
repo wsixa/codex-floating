@@ -63,8 +63,7 @@ export class CodexAdapter {
         const entry = entries.nth(index);
         if (!(await entry.isVisible({ timeout: PROBE_TIMEOUT }).catch(() => false))) continue;
         const text = (await entry.innerText({ timeout: PROBE_TIMEOUT }).catch(() => '')).trim();
-        if (!text || text.includes('\n') || /^(文件|编辑|视图|帮助|模型|推理强度|重置为默认设置|file|edit|view|help|reasoning)/iu.test(text)) continue;
-        const id = text.replace(/\s+/gu, ' ').slice(0, 256);
+        const id = modelMenuLabel(text);
         if (id && !seen.has(id)) { seen.add(id); models.push(id); }
       }
       return models;
@@ -586,4 +585,14 @@ function normalizeModelLabel(value: string): string {
     .replace(/[-_]+/gu, ' ')
     .replace(/\s+/gu, ' ')
     .trim();
+}
+
+/** Reject non-model entries that share the Desktop model/reasoning menu. */
+export function modelMenuLabel(value: string): string | null {
+  const label = value.replace(/\s+/gu, ' ').trim().slice(0, 256);
+  if (!label || value.includes('\n')) return null;
+  if (/^(?:文件|编辑|视图|帮助|模型|推理强度|重置为默认设置|最低|低级|低|中等|中|高级|高|极高|最高|自动|默认|file|edit|view|help|model|reasoning(?:\s+effort)?|minimal|low|medium|high|xhigh|max|auto|default)$/iu.test(label)) {
+    return null;
+  }
+  return label;
 }

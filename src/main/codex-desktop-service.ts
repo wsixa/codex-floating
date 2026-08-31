@@ -221,7 +221,7 @@ export class CodexDesktopService implements CodexSessionService {
   async listModels(): Promise<ApiModelOption[]> {
     const models = await this.requireAdapter().listModels();
     return models
-      .map((id) => ({ id: id.trim().slice(0, 256) }))
+      .map((id) => ({ id: normalizeDesktopModelId(id) }))
       .filter((model, index, all) => model.id.length > 0 && all.findIndex((candidate) => candidate.id === model.id) === index);
   }
 
@@ -330,6 +330,16 @@ export class CodexDesktopService implements CodexSessionService {
   private emitThreadsChanged(): void {
     for (const listener of this.threadListeners) listener();
   }
+}
+
+/** Convert Desktop display labels into the stable IDs persisted by Codex. */
+export function normalizeDesktopModelId(value: string): string {
+  const label = value.trim().replace(/\s+/gu, ' ').slice(0, 256);
+  const version = label.match(/^(?:gpt[-_ ]*)?(5(?:\.\d+)?)(?:[-_ ]+(sol|terra|luna))?$/iu);
+  if (!version) return label;
+  const family = version[1];
+  const variant = version[2]?.toLowerCase();
+  return `gpt-${family}${variant ? `-${variant}` : ''}`;
 }
 
 async function discoverEndpoints(): Promise<string[]> {

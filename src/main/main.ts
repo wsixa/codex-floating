@@ -48,6 +48,8 @@ let configService: ConfigService;
 let windowManager: WindowManager;
 let officialPageHost: OfficialPageHost | null = null;
 let embeddedPageUrl: string | null = null;
+let embeddedLoadGeneration = 0;
+let officialPageOverlayOpen = false;
 let trayManager: TrayManager;
 let captureService: CaptureService;
 let captureSelectionService: CaptureSelectionService;
@@ -64,6 +66,8 @@ let boundsPersistTimer: ReturnType<typeof setTimeout> | null = null;
 let rendererRestartAttempts = 0;
 let rendererRestartTimer: ReturnType<typeof setTimeout> | null = null;
 let modelRefreshGeneration = 0;
+let modelRefreshOperation: Promise<ApiModelOption[]> | null = null;
+let modelMenuOperation: Promise<unknown> | null = null;
 let activeOperation: Promise<unknown> | null = null;
 const optimisticConversationTitles = new Map<string, string>();
 const optimisticDeletedConversationKeys = new Set<string>();
@@ -259,6 +263,10 @@ function withOperation<T>(operation: () => Promise<T>): Promise<T> {
   if (activeOperation) {
     const error = new Error('Another operation is already in progress.');
     updateState({ lastError: error.message });
+    const timer = setTimeout(() => {
+      if (state.lastError === error.message) updateState({ lastError: null });
+    }, 2_500);
+    timer.unref?.();
     return Promise.reject(error);
   }
   const task = Promise.resolve().then(operation).catch((error) => {
@@ -269,6 +277,16 @@ function withOperation<T>(operation: () => Promise<T>): Promise<T> {
   activeOperation = task;
   return task.finally(() => {
     if (activeOperation === task) activeOperation = null;
+  });
+}
+
+/** Coalesce duplicate model-menu clicks without blocking other operations. */
+function withModelMenuOperation<T>(operation: () => Promise<T>): Promise<T> {
+  if (modelMenuOperation) return modelMenuOperation as Promise<T>;
+  const task = withOperation(operation);
+  modelMenuOperation = task;
+  return task.finally(() => {
+    if (modelMenuOperation === task) modelMenuOperation = null;
   });
 }
 
@@ -344,6 +362,7 @@ async function connectCodex(): Promise<AppState> {
   if (state.config.mode === 'api') {
     officialPageHost?.setVisible(false);
     embeddedPageUrl = null;
+    embeddedLoadGeneration += 1;
     modelRefreshGeneration += 1;
     await playwrightService.disconnect();
     await apiService.disconnect();
@@ -401,6 +420,7 @@ async function connectCodex(): Promise<AppState> {
   // BrowserView after that connection succeeds; an unloaded BrowserView must
   // never cover the React shell with its opaque background.
   embeddedPageUrl = null;
+  embeddedLoadGeneration += 1;
   const status = await playwrightService.connect(state.config);
   updateState({ connection: status.state, connectionMessage: status.message, page: status.page, availableModels: [], lastError: status.state === 'error' ? status.message : null });
   syncOfficialPageHost(status);
@@ -414,6 +434,7 @@ async function connectCodex(): Promise<AppState> {
 /** Keep the embedded page aligned with the authenticated Playwright page. */
 function syncOfficialPageHost(status: PlaywrightStatus): void {
   if (!mainWindow || mainWindow.isDestroyed() || state.config.mode !== 'playwright') {
+    embeddedLoadGeneration += 1;
     officialPageHost?.setVisible(false);
     embeddedPageUrl = null;
     return;
@@ -422,15 +443,22 @@ function syncOfficialPageHost(status: PlaywrightStatus): void {
   const targetUrl = status.page?.url ?? state.config.lastPageUrl ?? state.config.codexUrl;
   const usable = (status.state === 'connected' || status.state === 'login-required') && /^https?:\/\//i.test(targetUrl);
   if (!usable) {
+    embeddedLoadGeneration += 1;
     officialPageHost.setVisible(false);
     embeddedPageUrl = null;
     return;
   }
-  officialPageHost.setVisible(!state.config.miniMode);
+  officialPageHost.setVisible(shouldShowOfficialPage());
   if (targetUrl === embeddedPageUrl) return;
+  const generation = ++embeddedLoadGeneration;
   embeddedPageUrl = targetUrl;
-  void officialPageHost.load(targetUrl).catch((error: unknown) => {
-    if (embeddedPageUrl === targetUrl) embeddedPageUrl = null;
+  void (async () => {
+    const cookies = await playwrightService.getSessionCookies(targetUrl).catch(() => []);
+    if (generation !== embeddedLoadGeneration || embeddedPageUrl !== targetUrl || state.config.mode !== 'playwright') return;
+    await officialPageHost?.load(targetUrl, cookies);
+  })().catch((error: unknown) => {
+    if (generation !== embeddedLoadGeneration || embeddedPageUrl !== targetUrl) return;
+    embeddedPageUrl = null;
     officialPageHost?.setVisible(false);
     if (state.config.mode === 'playwright') {
       updateState({ lastError: `Embedded Codex page failed to load: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500) });
@@ -438,24 +466,36 @@ function syncOfficialPageHost(status: PlaywrightStatus): void {
   });
 }
 
-async function refreshApiModels(): Promise<ApiModelOption[]> {
+function shouldShowOfficialPage(miniMode = state.config.miniMode): boolean {
+  return state.config.mode === 'playwright' && !miniMode && !officialPageOverlayOpen;
+}
+
+function refreshApiModels(): Promise<ApiModelOption[]> {
+  if (modelRefreshOperation) return modelRefreshOperation;
   const generation = ++modelRefreshGeneration;
-  try {
-    const service = apiSessionService;
-    if (!service) return [];
-    const models = await service.listModels();
-    if (generation === modelRefreshGeneration && state.config.mode === 'api') {
-      const status = service.currentStatus;
-      updateState({ connection: status.state, connectionMessage: status.message, page: status.page ?? null, availableModels: models, lastError: null });
+  const operation = (async (): Promise<ApiModelOption[]> => {
+    try {
+      const service = apiSessionService;
+      if (!service) return [];
+      const models = await service.listModels();
+      const effectiveModels = models.length > 0 ? models : state.availableModels;
+      if (generation === modelRefreshGeneration && state.config.mode === 'api') {
+        const status = service.currentStatus;
+        updateState({ connection: status.state, connectionMessage: status.message, page: status.page ?? null, availableModels: effectiveModels, lastError: null });
+      }
+      return effectiveModels;
+    } catch (error) {
+      if (generation === modelRefreshGeneration && state.config.mode === 'api') {
+        const status = apiSessionService?.currentStatus ?? codexAppServerService.currentStatus;
+        updateState({ connection: status.state, connectionMessage: status.message, page: status.page ?? null, lastError: error instanceof Error ? error.message : String(error) });
+      }
+      throw error;
     }
-    return models;
-  } catch (error) {
-    if (generation === modelRefreshGeneration && state.config.mode === 'api') {
-      const status = apiSessionService?.currentStatus ?? codexAppServerService.currentStatus;
-      updateState({ connection: status.state, connectionMessage: status.message, page: status.page ?? null, lastError: error instanceof Error ? error.message : String(error) });
-    }
-    throw error;
-  }
+  })();
+  modelRefreshOperation = operation;
+  return operation.finally(() => {
+    if (modelRefreshOperation === operation) modelRefreshOperation = null;
+  });
 }
 
 async function loadConversations(): Promise<ConversationSummary[]> {
@@ -795,9 +835,14 @@ function registerIpc(): void {
   secureHandle(IPC_CHANNELS.quit, () => {
     app.quit();
   });
+  secureHandle(IPC_CHANNELS.setOfficialPageOverlayOpen, (_event, value: unknown) => {
+    if (typeof value !== 'boolean') throw new Error('Invalid official page overlay state.');
+    officialPageOverlayOpen = value;
+    officialPageHost?.setVisible(shouldShowOfficialPage());
+  });
   secureHandle(IPC_CHANNELS.toggleMiniMode, async () => {
     const miniMode = windowManager.toggleMiniMode();
-    officialPageHost?.setVisible(!miniMode);
+    officialPageHost?.setVisible(shouldShowOfficialPage(miniMode));
     const config = await configService.update({ miniMode, window: windowManager.getBounds() ?? undefined });
     updateState({ config });
     return rendererState();
@@ -817,11 +862,24 @@ function registerIpc(): void {
     if (apiSessionService === codexDesktopService) return codexDesktopService.openSettings();
     await windowManager.show();
   }));
-  secureHandle(IPC_CHANNELS.openModelMenu, () => withOperation(async () => {
-    if (state.config.mode === 'playwright') return playwrightService.openModelMenu();
-    if (apiSessionService === codexDesktopService) return codexDesktopService.openModelMenu();
-    await refreshApiModels();
-  }));
+  secureHandle(IPC_CHANNELS.openModelMenu, () => {
+    // The initial API connection refreshes models in the background while the
+    // main operation is still connecting. Reuse that request instead of
+    // reporting a misleading global-operation conflict to the user.
+    if (state.config.mode === 'api' && modelRefreshOperation) {
+      return modelRefreshOperation.then(() => { updateState({ lastError: null }); });
+    }
+    return withModelMenuOperation(async () => {
+      if (state.config.mode === 'playwright') {
+        await playwrightService.openModelMenu();
+      } else {
+        // API mode already renders a native model selector. Refresh its data
+        // instead of opening a second, remote menu in Codex Desktop.
+        await refreshApiModels();
+      }
+      updateState({ lastError: null });
+    });
+  });
 }
 
 function triggerCapture(): Promise<AppState> {
@@ -920,6 +978,7 @@ async function createApplication(): Promise<void> {
     minimize: () => windowManager.minimize(),
     toggleMiniMode: () => {
       const miniMode = windowManager.toggleMiniMode();
+      officialPageHost?.setVisible(shouldShowOfficialPage(miniMode));
       void configService.update({ miniMode, window: windowManager.getBounds() ?? undefined })
         .then((next) => updateState({ config: next }))
         .catch((error: unknown) => updateState({ lastError: error instanceof Error ? error.message : String(error) }));

@@ -8,7 +8,7 @@ import { CodexAppServerService } from './codex-app-server';
 import { CodexDesktopService } from './codex-desktop-service';
 import type { CodexSessionService } from './codex-session';
 import { ConfigService } from './config-service';
-import { PlaywrightService } from './playwright-service';
+import { PlaywrightService, type PlaywrightStatus } from './playwright-service';
 import { TrayManager } from './tray-manager';
 import { WindowManager } from './window-manager';
 import { OfficialPageHost } from './official-page-host';
@@ -47,6 +47,7 @@ let mainWindow: BrowserWindow | null = null;
 let configService: ConfigService;
 let windowManager: WindowManager;
 let officialPageHost: OfficialPageHost | null = null;
+let embeddedPageUrl: string | null = null;
 let trayManager: TrayManager;
 let captureService: CaptureService;
 let captureSelectionService: CaptureSelectionService;
@@ -342,6 +343,7 @@ function sanitizePageUrl(value: string | undefined): string | null {
 async function connectCodex(): Promise<AppState> {
   if (state.config.mode === 'api') {
     officialPageHost?.setVisible(false);
+    embeddedPageUrl = null;
     modelRefreshGeneration += 1;
     await playwrightService.disconnect();
     await apiService.disconnect();
@@ -395,22 +397,45 @@ async function connectCodex(): Promise<AppState> {
   await codexDesktopService.disconnect();
   await codexAppServerService.disconnect();
   apiSessionService = codexAppServerService;
-  // The visible official page is hosted by the floating shell. Playwright
-  // remains the automation/control path and keeps its persistent session.
-  if (!officialPageHost && mainWindow) officialPageHost = new OfficialPageHost(mainWindow);
-  if (officialPageHost) {
-    officialPageHost.setVisible(!state.config.miniMode);
-    void officialPageHost.load(state.config.lastPageUrl ?? state.config.codexUrl).catch((error: unknown) => {
-      updateState({ lastError: `Embedded Codex page failed to load: ${error instanceof Error ? error.message : String(error)}` });
-    });
-  }
+  // Playwright owns the persistent authenticated page. Only expose the
+  // BrowserView after that connection succeeds; an unloaded BrowserView must
+  // never cover the React shell with its opaque background.
+  embeddedPageUrl = null;
   const status = await playwrightService.connect(state.config);
   updateState({ connection: status.state, connectionMessage: status.message, page: status.page, availableModels: [], lastError: status.state === 'error' ? status.message : null });
+  syncOfficialPageHost(status);
   if (status.state === 'connected') {
     await loadConversations().catch(() => undefined);
     await rememberPage().catch(() => undefined);
   }
   return state;
+}
+
+/** Keep the embedded page aligned with the authenticated Playwright page. */
+function syncOfficialPageHost(status: PlaywrightStatus): void {
+  if (!mainWindow || mainWindow.isDestroyed() || state.config.mode !== 'playwright') {
+    officialPageHost?.setVisible(false);
+    embeddedPageUrl = null;
+    return;
+  }
+  if (!officialPageHost) officialPageHost = new OfficialPageHost(mainWindow);
+  const targetUrl = status.page?.url ?? state.config.lastPageUrl ?? state.config.codexUrl;
+  const usable = (status.state === 'connected' || status.state === 'login-required') && /^https?:\/\//i.test(targetUrl);
+  if (!usable) {
+    officialPageHost.setVisible(false);
+    embeddedPageUrl = null;
+    return;
+  }
+  officialPageHost.setVisible(!state.config.miniMode);
+  if (targetUrl === embeddedPageUrl) return;
+  embeddedPageUrl = targetUrl;
+  void officialPageHost.load(targetUrl).catch((error: unknown) => {
+    if (embeddedPageUrl === targetUrl) embeddedPageUrl = null;
+    officialPageHost?.setVisible(false);
+    if (state.config.mode === 'playwright') {
+      updateState({ lastError: `Embedded Codex page failed to load: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500) });
+    }
+  });
 }
 
 async function refreshApiModels(): Promise<ApiModelOption[]> {
@@ -905,6 +930,7 @@ async function createApplication(): Promise<void> {
   }, config.language);
   playwrightService.onStatus((status) => {
     updateState({ connection: status.state, connectionMessage: status.message, page: status.page });
+    syncOfficialPageHost(status);
     void rememberPage().catch((error: unknown) => {
       updateState({ lastError: error instanceof Error ? error.message : String(error) });
     });

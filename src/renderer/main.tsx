@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createRoot } from 'react-dom/client';
 import { Camera, Crosshair, ExternalLink, FileText, LoaderCircle, Maximize2, Minus, Plus, RefreshCw, Send, Settings2, Sparkles, Upload, X } from 'lucide-react';
 import type { AppConfig, AppState, AttachmentPayload } from '../shared/types';
 import { getUiText, localizeRuntimeMessage } from './i18n';
@@ -85,5 +86,9 @@ function Settings({ config, onChange, onClose }: { config: AppConfig; onChange: 
   const text = getUiText(config.language);
   return <section className="settings-popover"><div className="settings-heading"><strong>{text.preferences}</strong><button title="Close" aria-label="Close" onClick={onClose}><X size={14} /></button></div><label>{text.language}<select value={config.language} onChange={(event) => onChange({ language: event.target.value as AppConfig['language'] })}><option value="zh-CN">{text.languageZh}</option><option value="en-US">{text.languageEn}</option></select></label><label>{text.transportMode}<select value={config.mode} onChange={(event) => onChange({ mode: event.target.value as AppConfig['mode'] })}><option value="playwright">{text.officialMode}</option><option value="api">{text.ccswitchMode}</option></select></label><label>{text.theme}<select value={config.theme} onChange={(event) => onChange({ theme: event.target.value as AppConfig['theme'] })}><option value="system">{text.systemTheme}</option><option value="dark">{text.darkTheme}</option><option value="light">{text.lightTheme}</option></select></label></section>;
 }
+
+const rootElement = document.getElementById('root');
+if (!rootElement) throw new Error('Renderer root element is missing.');
+createRoot(rootElement).render(<App />);
 
 export default App;

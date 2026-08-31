@@ -38,7 +38,10 @@ export class WindowManager {
       movable: true,
       alwaysOnTop: config.alwaysOnTop,
       skipTaskbar: false,
-      show: true,
+      // Keep the native background hidden until the renderer has completed
+      // its first load. The main process also shows it from did-finish-load as
+      // a fallback for Windows builds that omit ready-to-show.
+      show: false,
       backgroundColor: '#11161d',
       webPreferences: {
         preload: path.join(__dirname, '../preload.js'),

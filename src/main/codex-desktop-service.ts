@@ -225,26 +225,28 @@ export class CodexDesktopService implements CodexSessionService {
     return this.conversations.map((item) => ({ ...item }));
   }
 
-  async sendMessage(text: string, attachments: AttachmentPayload[]): Promise<void> {
+  async sendMessage(text: string, attachments: AttachmentPayload[]): Promise<string | void> {
     const adapter = this.requireAdapter();
     // A draft must still be on Desktop's home composer at send time. If a
     // refresh or an external click restored the previous thread, reopen the
     // new-thread view instead of writing into that old conversation.
     if (this.draftConversationId) await adapter.ensureDesktopDraftConversation();
-    await adapter.sendMessage(text, attachments);
+    const response = await adapter.sendMessage(text, attachments);
     // The official client generates its final thread title after the first
     // user turn. Refresh shortly after the DOM update so the mini UI follows
     // the same title without blocking the send operation.
     this.scheduleConversationRefresh();
     await this.refreshStatus();
+    return response;
   }
 
-  async uploadAndSend(capture: CapturePayload, text?: string): Promise<void> {
+  async uploadAndSend(capture: CapturePayload, text?: string): Promise<string | void> {
     const adapter = this.requireAdapter();
     if (this.draftConversationId) await adapter.ensureDesktopDraftConversation();
-    await adapter.uploadAndSend(capture, text);
+    const response = await adapter.uploadAndSend(capture, text);
     this.scheduleConversationRefresh();
     await this.refreshStatus();
+    return response;
   }
 
   async listModels(): Promise<ApiModelOption[]> {

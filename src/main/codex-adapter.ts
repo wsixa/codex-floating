@@ -3,6 +3,14 @@ import { isPlaceholderConversationTitle, NEW_CONVERSATION_TITLE, type Attachment
 
 const ACTION_TIMEOUT = 8_000;
 const PROBE_TIMEOUT = 700;
+const RESPONSE_TIMEOUT = 120_000;
+const RESPONSE_POLLING = 250;
+
+interface DesktopAssistantSnapshot {
+  id: string;
+  text: string;
+  final: boolean;
+}
 
 export class CodexAdapter {
   private trackedConversationUrl: string | null = null;
@@ -31,8 +39,8 @@ export class CodexAdapter {
     };
   }
 
-  async sendText(text: string): Promise<void> {
-    await this.sendMessage(text, []);
+  async sendText(text: string): Promise<string | void> {
+    return this.sendMessage(text, []);
   }
 
   /** Read the model choices exposed by the official Desktop composer menu. */
@@ -139,9 +147,9 @@ export class CodexAdapter {
     await trigger.click({ timeout: ACTION_TIMEOUT });
   }
 
-  async uploadAndSend(capture: CapturePayload, text?: string): Promise<void> {
+  async uploadAndSend(capture: CapturePayload, text?: string): Promise<string | void> {
     const data = new Uint8Array(capture.buffer);
-    await this.sendMessage(text ?? '', [{
+    return this.sendMessage(text ?? '', [{
       id: `capture-${capture.capturedAt}`,
       name: `codex-capture-${capture.capturedAt}.${capture.mimeType === 'image/jpeg' ? 'jpg' : 'png'}`,
       mimeType: capture.mimeType,
@@ -152,10 +160,14 @@ export class CodexAdapter {
     }]);
   }
 
-  async sendMessage(text: string, attachments: AttachmentPayload[]): Promise<void> {
+  async sendMessage(text: string, attachments: AttachmentPayload[]): Promise<string | void> {
     const value = text.trim();
     if (!value && attachments.length === 0) throw new Error('Message cannot be empty.');
     if (value.length > 30_000) throw new Error('Message is too long (30,000 characters maximum).');
+
+    const assistantBefore = this.isDesktopClientPage()
+      ? await this.snapshotDesktopAssistantMessages()
+      : [];
 
     if (attachments.length > 0) {
       const payloads = attachments.map((attachment) => ({
@@ -225,6 +237,9 @@ export class CodexAdapter {
       this.trackedConversationUrl = this.page.url();
       this.trackedConversationDraft = false;
     }
+
+    if (!this.isDesktopClientPage()) return undefined;
+    return this.waitForDesktopAssistantResponse(assistantBefore);
   }
 
   async startNewConversation(): Promise<void> {
@@ -495,6 +510,43 @@ export class CodexAdapter {
         : element.textContent ?? '';
       return current.trim() === expected;
     }, value, { timeout: PROBE_TIMEOUT }).catch(() => false);
+  }
+
+  /**
+   * Capture the assistant nodes currently rendered by the official Desktop.
+   * The response annotation ID is stable for a message and lets us distinguish
+   * a new reply from the last reply already visible in the conversation.
+   */
+  private async snapshotDesktopAssistantMessages(): Promise<DesktopAssistantSnapshot[]> {
+    return this.page.locator('[data-markdown-text-style="assistant-message"]').evaluateAll((nodes) => nodes.map((node, index) => ({
+      id: node.parentElement?.getAttribute('data-response-annotation-target')?.trim() || `index:${index}`,
+      text: (node.textContent ?? '').trim(),
+      final: Boolean(node.closest('[data-local-conversation-final-assistant="true"]')),
+    }))).catch(() => []);
+  }
+
+  /** Wait for the final assistant node created by the just-submitted turn. */
+  private async waitForDesktopAssistantResponse(before: DesktopAssistantSnapshot[]): Promise<string | undefined> {
+    const beforeIds = before.map((item) => item.id);
+    try {
+      const result = await this.page.waitForFunction(({ ids }) => {
+        const nodes = Array.from(document.querySelectorAll('[data-markdown-text-style="assistant-message"]'));
+        for (let index = nodes.length - 1; index >= 0; index -= 1) {
+          const node = nodes[index];
+          const id = node.parentElement?.getAttribute('data-response-annotation-target')?.trim() || `index:${index}`;
+          const text = (node.textContent ?? '').trim();
+          const isFinal = Boolean(node.closest('[data-local-conversation-final-assistant="true"]'));
+          if (text && isFinal && !ids.includes(id)) return text;
+        }
+        return false;
+      }, { ids: beforeIds }, { timeout: RESPONSE_TIMEOUT, polling: RESPONSE_POLLING });
+      const value = await result.jsonValue() as unknown;
+      return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+    } catch {
+      // The message was already accepted by Desktop. A slow/offline model
+      // must not leave the floating assistant's send operation locked forever.
+      return undefined;
+    }
   }
 
   private async findFileInput(): Promise<Locator | null> {

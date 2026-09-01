@@ -105,6 +105,10 @@ export class CodexAppServerService {
   private pendingTurn: PendingTurn | null = null;
   private readonly threads = new Map<string, CodexThread>();
   private readonly loadedThreadIds = new Set<string>();
+  // thread/start can succeed before thread/list exposes the new record.
+  // Keep that thread active across the first stale refresh so a send cannot
+  // fall back to the previously selected conversation.
+  private readonly optimisticThreadIds = new Set<string>();
   private activeThreadId: string | null = null;
   private pendingThreadName: string | null = null;
   private codexHome: string | null = null;
@@ -181,6 +185,7 @@ export class CodexAppServerService {
     this.config = null;
     this.threads.clear();
     this.loadedThreadIds.clear();
+    this.optimisticThreadIds.clear();
     this.activeThreadId = null;
     this.pendingThreadName = null;
     this.codexHome = null;
@@ -206,6 +211,7 @@ export class CodexAppServerService {
     if (!thread) throw new Error('Codex did not return the new thread.');
     this.threads.set(thread.id, thread);
     this.loadedThreadIds.add(thread.id);
+    this.optimisticThreadIds.add(thread.id);
     this.activeThreadId = thread.id;
     this.pendingThreadName = null;
     this.emitThreadsChanged();
@@ -348,6 +354,14 @@ export class CodexAppServerService {
       cursor = typeof result?.nextCursor === 'string' && result.nextCursor ? result.nextCursor : null;
       if (!cursor) break;
     }
+    // Preserve a synchronously created thread until app-server confirms it in
+    // thread/list. The first list response can lag behind thread/start.
+    const optimisticId = this.activeThreadId && this.optimisticThreadIds.has(this.activeThreadId)
+      ? this.activeThreadId
+      : null;
+    const optimisticThread = optimisticId ? this.threads.get(optimisticId) : null;
+    if (optimisticId && optimisticThread && !next.has(optimisticId)) next.set(optimisticId, optimisticThread);
+
     // Preserve a synchronous optimistic name until app-server confirms it.
     if (this.activeThreadId && this.pendingThreadName) {
       const thread = next.get(this.activeThreadId);
@@ -355,6 +369,7 @@ export class CodexAppServerService {
     }
     this.threads.clear();
     for (const [id, thread] of next) this.threads.set(id, thread);
+    if (this.activeThreadId && this.threads.has(this.activeThreadId)) this.optimisticThreadIds.delete(this.activeThreadId);
     if (this.activeThreadId && !this.threads.has(this.activeThreadId)) this.activeThreadId = this.sortedThreads()[0]?.id ?? null;
     this.emitThreadsChanged();
     return this.conversationSummaries();

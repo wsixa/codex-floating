@@ -23,6 +23,7 @@ const config: AppConfig = {
 class FakeTransport implements AppServerTransport {
   private onMessage: ((message: unknown) => void) | null = null;
   private nextThread = 1;
+  private hideNextStartedThreadFromList = false;
   private readonly threads = new Map<string, { id: string; name: string | null; preview: string; updatedAt: number }>();
 
   async start(onMessage: (message: unknown) => void): Promise<void> { this.onMessage = onMessage; }
@@ -35,11 +36,15 @@ class FakeTransport implements AppServerTransport {
     if (method === 'initialize') {
       this.reply(message.id, { codexHome: 'C:\\Users\\test\\.codex', platformFamily: 'windows', platformOs: 'windows', userAgent: 'test' });
     } else if (method === 'thread/list') {
-      this.reply(message.id, { data: [...this.threads.values()], nextCursor: null, backwardsCursor: null });
+      const values = [...this.threads.values()];
+      const data = this.hideNextStartedThreadFromList ? values.slice(0, -1) : values;
+      this.hideNextStartedThreadFromList = false;
+      this.reply(message.id, { data, nextCursor: null, backwardsCursor: null });
     } else if (method === 'thread/start') {
       const id = `thread-${this.nextThread++}`;
       const thread = { id, name: null, preview: '', updatedAt: Date.now() / 1000 };
       this.threads.set(id, thread);
+      this.hideNextStartedThreadFromList = true;
       this.reply(message.id, { thread: { ...thread, turns: [] }, model: 'gpt-5.6-sol', modelProvider: 'custom', cwd: 'D:\\codex-platform', approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: { type: 'readOnly' } });
     } else if (method === 'thread/resume') {
       const thread = this.threads.get(String(params?.threadId));
@@ -72,6 +77,21 @@ class FakeTransport implements AppServerTransport {
 }
 
 describe('CodexAppServerService', () => {
+  it('keeps a newly created thread active when the first list refresh is stale', async () => {
+    const service = new CodexAppServerService({
+      cwd: 'D:\\codex-platform',
+      attachmentDirectory: 'D:\\codex-platform\\output\\test-attachments',
+      transportFactory: async () => new FakeTransport(),
+    });
+    await service.connect(config);
+    await service.newConversation();
+    const id = service.currentConversationId;
+    expect(id).toMatch(/^thread-/);
+    await service.listConversations();
+    expect(service.currentConversationId).toBe(id);
+    await service.disconnect();
+  });
+
   it('uses official thread ids and synchronizes create, send, list, model, and delete', async () => {
     const service = new CodexAppServerService({
       cwd: 'D:\\codex-platform',

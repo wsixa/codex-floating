@@ -190,7 +190,10 @@ export class CodexAdapter {
 
     // File chooser events can cause Codex to re-render the composer. Locate it
     // after uploads so a text prompt is never written into a stale element.
-    const composer = value ? await this.findComposer(true) : await this.findComposer(false);
+    const desktopDraft = this.isDesktopClientPage() && this.trackedConversationDraft;
+    const composer = value
+      ? await this.findComposer(true, desktopDraft)
+      : await this.findComposer(false, desktopDraft);
     if (value && composer) await composer.fill(value, { timeout: ACTION_TIMEOUT });
 
     if (this.isDesktopClientPage() && composer) {
@@ -199,7 +202,10 @@ export class CodexAdapter {
       // composer we filled, then verify Codex consumed its contents.
       await composer.press('Enter', { timeout: ACTION_TIMEOUT });
       if (value && await this.composerStillContains(composer, value)) {
-        const send = await this.findSendButton(true);
+        // Only use a submit control inside the composer that was filled. A
+        // global send-button lookup can resolve to a stale thread during the
+        // Desktop route transition.
+        const send = await this.findComposerSendButton(composer);
         if (send) await send.click({ timeout: ACTION_TIMEOUT });
       }
       if (value && await this.composerStillContains(composer, value)) {
@@ -226,6 +232,10 @@ export class CodexAdapter {
       ? await this.selectedDesktopThreadId()
       : null;
     const button = await this.findVisible([
+      // The official Desktop sidebar has other nested "new conversation"
+      // controls (for scheduled/project folders). The top-level sidebar item
+      // is the only control that actually opens the global new-thread page.
+      this.page.locator('button.sidebar-item').filter({ hasText: /^(?:新对话|新会话|new\s+(?:chat|conversation|task|thread))$/i }).first(),
       this.page.getByRole('button', { name: /new\s+(chat|conversation|task|thread)|新建(?:聊天|会话|对话)|新对话|新会话/i }).first(),
       this.page.getByRole('link', { name: /new\s+(chat|conversation|task|thread)|新建(?:聊天|会话|对话)|新对话|新会话/i }).first(),
       this.page.getByLabel(/new\s+(chat|conversation|task|thread)|新建(?:聊天|会话|对话)|新对话|新会话/i).first(),
@@ -237,13 +247,35 @@ export class CodexAdapter {
       await this.page.waitForFunction((previousId) => {
         const selected = document.querySelector('[data-app-action-sidebar-thread-row][data-app-action-sidebar-thread-selected="true"]');
         const selectedId = selected?.getAttribute('data-app-action-sidebar-thread-id')?.trim() || null;
-        return selectedId !== previousId;
+        const homeComposer = document.querySelector('[data-composer-placement="home"] [data-codex-composer="true"], [data-composer-placement="home"] [data-codex-composer]');
+        const rect = homeComposer?.getBoundingClientRect();
+        const homeVisible = Boolean(rect && rect.width > 0 && rect.height > 0);
+        // A new Desktop conversation is represented by the home composer and
+        // no selected history row. If we were already on the home page, the
+        // click is idempotent and the previous ID may also be null.
+        return homeVisible && (selectedId === null || previousId === null);
       }, previousDesktopThreadId, { timeout: ACTION_TIMEOUT });
-      await this.page.locator('[data-codex-composer]').last()
+      await this.page.locator('[data-composer-placement="home"] [data-codex-composer="true"], [data-composer-placement="home"] [data-codex-composer]')
+        .last()
         .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT });
     }
     this.trackedConversationUrl = this.page.url();
     this.trackedConversationDraft = true;
+  }
+
+  /** Ensure a pending Desktop draft has the official home composer active. */
+  async ensureDesktopDraftConversation(): Promise<void> {
+    if (!this.isDesktopClientPage() || await this.isDesktopHomeConversation()) return;
+    await this.startNewConversation();
+  }
+
+  /** True only while the official Desktop page is showing its empty home view. */
+  async isDesktopHomeConversation(): Promise<boolean> {
+    if (!this.isDesktopClientPage()) return false;
+    const selectedId = await this.selectedDesktopThreadId();
+    if (selectedId) return false;
+    const composer = await this.findComposer(false, true);
+    return Boolean(composer);
   }
 
   async listConversations(): Promise<ConversationSummary[]> {
@@ -406,8 +438,13 @@ export class CodexAdapter {
     }
   }
 
-  private async findComposer(required: boolean): Promise<Locator | null> {
-    const locator = await this.findVisible([
+  private async findComposer(required: boolean, desktopHomeOnly = false): Promise<Locator | null> {
+    const candidates = desktopHomeOnly
+      ? [
+        this.page.locator('[data-composer-placement="home"] [data-codex-composer="true"]').last(),
+        this.page.locator('[data-composer-placement="home"] [data-codex-composer]').last(),
+      ]
+      : [
       this.page.locator('[data-codex-composer="true"]').first(),
       this.page.locator('[data-codex-composer]').first(),
       this.page.getByRole('textbox', { name: /随心输入|message|prompt|ask|chat/i }).first(),
@@ -415,9 +452,19 @@ export class CodexAdapter {
       this.page.getByPlaceholder(/message|prompt|ask|chat/i).first(),
       this.page.locator('textarea').first(),
       this.page.locator('[contenteditable="true"]').first(),
-    ]);
+      ];
+    const locator = await this.findVisible(candidates);
     if (!locator && required) throw new Error('Codex message input was not found. Are you logged in?');
     return locator;
+  }
+
+  private async findComposerSendButton(composer: Locator): Promise<Locator | null> {
+    const root = composer.locator('xpath=ancestor::*[@data-codex-composer-root][1]');
+    return this.findVisible([
+      root.getByRole('button', { name: /发送|send|submit|run/i }).last(),
+      root.locator('button[type="submit"]').last(),
+      composer.locator('xpath=following::button[1]'),
+    ]);
   }
 
   private async findSendButton(required: boolean): Promise<Locator | null> {

@@ -204,7 +204,12 @@ export class CodexDesktopService implements CodexSessionService {
   }
 
   async sendMessage(text: string, attachments: AttachmentPayload[]): Promise<void> {
-    await this.requireAdapter().sendMessage(text, attachments);
+    const adapter = this.requireAdapter();
+    // A draft must still be on Desktop's home composer at send time. If a
+    // refresh or an external click restored the previous thread, reopen the
+    // new-thread view instead of writing into that old conversation.
+    if (this.draftConversationId) await adapter.ensureDesktopDraftConversation();
+    await adapter.sendMessage(text, attachments);
     // The official client generates its final thread title after the first
     // user turn. Refresh shortly after the DOM update so the mini UI follows
     // the same title without blocking the send operation.
@@ -281,7 +286,7 @@ export class CodexDesktopService implements CodexSessionService {
       // While a Desktop draft is opening, the sidebar can keep the previous
       // row selected for a few frames. Preserve the draft until Codex assigns
       // the newly sent turn a real thread ID.
-      if (this.draftConversationId && this.activeThreadId === this.draftConversationId) return;
+      if (this.draftConversationId && this.activeThreadId === this.draftConversationId && await this.adapter?.isDesktopHomeConversation()) return;
       const previousDraft = this.draftConversationId;
       this.activeThreadId = id.trim();
       if (previousDraft && previousDraft !== this.activeThreadId) this.draftConversationId = null;

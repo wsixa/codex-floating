@@ -353,6 +353,10 @@ async function rememberPage(): Promise<void> {
 async function persistActiveThread(): Promise<void> {
   if (state.config.mode !== 'api' || !configService) return;
   const threadId = apiSessionService?.currentConversationId ?? null;
+  // Desktop uses a local sentinel while its new-thread page has no real
+  // server-assigned ID yet. Never persist that transient value as the next
+  // startup target.
+  if (threadId?.startsWith('desktop-draft:')) return;
   if (threadId === state.config.lastThreadId) return;
   const config = await configService.update({ lastThreadId: threadId });
   updateState({ config });

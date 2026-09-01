@@ -155,7 +155,11 @@ export function App() {
   const capture = async (selectRegion: boolean, sendImmediately = true) => {
     setAttachmentMenuOpen(false); setActionMenuOpen(false); setBusy(true);
     try {
-      if (sendImmediately) await window.codexAssistant.captureAndSend({ selectRegion });
+      if (sendImmediately) {
+        const next = await window.codexAssistant.captureAndSend({ selectRegion });
+        appendMessage({ role: 'user', text: selectRegion ? text.attachRegion : text.attachFullScreen });
+        if (next.lastResponse) appendMessage({ role: 'assistant', text: next.lastResponse });
+      }
       else { const attachment = await window.codexAssistant.captureAttachment({ selectRegion }); setAttachments((current) => [...current, attachment].slice(0, 8)); }
     } catch { /* state carries the error */ }
     finally { setBusy(false); }

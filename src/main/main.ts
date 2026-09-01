@@ -280,6 +280,22 @@ function withOperation<T>(operation: () => Promise<T>): Promise<T> {
   });
 }
 
+/**
+ * Sending is user-visible work and should wait for a short-lived reconnect or
+ * model refresh instead of failing with the generic global-lock error.
+ * Re-check the lock after every waiter settles because another IPC request may
+ * have started in the meantime.
+ */
+function withQueuedSendOperation<T>(operation: () => Promise<T>): Promise<T> {
+  if (state.isSending) return Promise.reject(new Error('A message is already being sent.'));
+  const waitForIdle = (): Promise<T> => {
+    const pending = activeOperation;
+    if (pending) return pending.catch(() => undefined).then(waitForIdle);
+    return withOperation(operation);
+  };
+  return waitForIdle();
+}
+
 /** Coalesce duplicate model-menu clicks without blocking other operations. */
 function withModelMenuOperation<T>(operation: () => Promise<T>): Promise<T> {
   if (modelMenuOperation) return modelMenuOperation as Promise<T>;
@@ -751,7 +767,7 @@ function registerIpc(): void {
   }));
   secureHandle(IPC_CHANNELS.sendMessage, (_event, value: unknown) => {
     if (!isSendMessageInput(value)) throw new Error('Invalid message payload.');
-    return withOperation(async () => {
+    return withQueuedSendOperation(async () => {
       await sendMessage(value);
       return rendererState();
     });

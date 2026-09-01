@@ -161,8 +161,8 @@ export class CodexDesktopService implements CodexSessionService {
     this.draftConversationId = `desktop-draft:${Date.now()}`;
     this.activeThreadId = this.draftConversationId;
     this.pendingTitle = null;
-    await this.refreshConversations().catch(() => undefined);
-    await this.refreshStatus();
+    this.conversations = this.mergeDraftConversation(this.conversations);
+    this.emitThreadsChanged();
   }
 
   async switchConversation(id: string, knownUrl?: string): Promise<void> {
@@ -278,6 +278,10 @@ export class CodexDesktopService implements CodexSessionService {
     const selected = this.page.locator('[data-app-action-sidebar-thread-row][data-app-action-sidebar-thread-selected="true"]').first();
     const id = await selected.getAttribute('data-app-action-sidebar-thread-id').catch(() => null);
     if (id?.trim()) {
+      // While a Desktop draft is opening, the sidebar can keep the previous
+      // row selected for a few frames. Preserve the draft until Codex assigns
+      // the newly sent turn a real thread ID.
+      if (this.draftConversationId && this.activeThreadId === this.draftConversationId) return;
       const previousDraft = this.draftConversationId;
       this.activeThreadId = id.trim();
       if (previousDraft && previousDraft !== this.activeThreadId) this.draftConversationId = null;

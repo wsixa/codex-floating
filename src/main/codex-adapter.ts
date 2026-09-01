@@ -193,13 +193,27 @@ export class CodexAdapter {
     const composer = value ? await this.findComposer(true) : await this.findComposer(false);
     if (value && composer) await composer.fill(value, { timeout: ACTION_TIMEOUT });
 
-    const send = await this.findSendButton(true);
-    if (send) {
-      await send.click({ timeout: ACTION_TIMEOUT });
-    } else if (composer) {
+    if (this.isDesktopClientPage() && composer) {
+      // The Desktop shell can briefly keep the previous thread's submit
+      // button mounted while a new draft is opening. Submit through the exact
+      // composer we filled, then verify Codex consumed its contents.
       await composer.press('Enter', { timeout: ACTION_TIMEOUT });
+      if (value && await this.composerStillContains(composer, value)) {
+        const send = await this.findSendButton(true);
+        if (send) await send.click({ timeout: ACTION_TIMEOUT });
+      }
+      if (value && await this.composerStillContains(composer, value)) {
+        throw new Error('Codex did not accept the message in the new conversation. Please retry.');
+      }
     } else {
-      throw new Error('Codex send control was not found.');
+      const send = await this.findSendButton(true);
+      if (send) {
+        await send.click({ timeout: ACTION_TIMEOUT });
+      } else if (composer) {
+        await composer.press('Enter', { timeout: ACTION_TIMEOUT });
+      } else {
+        throw new Error('Codex send control was not found.');
+      }
     }
     if (this.trackedConversationUrl) {
       this.trackedConversationUrl = this.page.url();
@@ -208,6 +222,9 @@ export class CodexAdapter {
   }
 
   async startNewConversation(): Promise<void> {
+    const previousDesktopThreadId = this.isDesktopClientPage()
+      ? await this.selectedDesktopThreadId()
+      : null;
     const button = await this.findVisible([
       this.page.getByRole('button', { name: /new\s+(chat|conversation|task|thread)|新建(?:聊天|会话|对话)|新对话|新会话/i }).first(),
       this.page.getByRole('link', { name: /new\s+(chat|conversation|task|thread)|新建(?:聊天|会话|对话)|新对话|新会话/i }).first(),
@@ -217,7 +234,13 @@ export class CodexAdapter {
     await button.click({ timeout: ACTION_TIMEOUT });
     await this.page.waitForLoadState('domcontentloaded', { timeout: 3_000 }).catch(() => undefined);
     if (this.isDesktopClientPage()) {
-      await this.page.locator('[data-codex-composer]').first().waitFor({ state: 'visible', timeout: ACTION_TIMEOUT }).catch(() => undefined);
+      await this.page.waitForFunction((previousId) => {
+        const selected = document.querySelector('[data-app-action-sidebar-thread-row][data-app-action-sidebar-thread-selected="true"]');
+        const selectedId = selected?.getAttribute('data-app-action-sidebar-thread-id')?.trim() || null;
+        return selectedId !== previousId;
+      }, previousDesktopThreadId, { timeout: ACTION_TIMEOUT });
+      await this.page.locator('[data-codex-composer]').last()
+        .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT });
     }
     this.trackedConversationUrl = this.page.url();
     this.trackedConversationDraft = true;
@@ -405,6 +428,21 @@ export class CodexAdapter {
     ]);
     if (!button && required) return null;
     return button;
+  }
+
+  private async selectedDesktopThreadId(): Promise<string | null> {
+    const selected = this.page.locator('[data-app-action-sidebar-thread-row][data-app-action-sidebar-thread-selected="true"]').first();
+    return (await selected.getAttribute('data-app-action-sidebar-thread-id').catch(() => null))?.trim() || null;
+  }
+
+  private async composerStillContains(composer: Locator, value: string): Promise<boolean> {
+    await this.page.waitForTimeout(120);
+    return composer.evaluate((element, expected) => {
+      const current = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+        ? element.value
+        : element.textContent ?? '';
+      return current.trim() === expected;
+    }, value).catch(() => false);
   }
 
   private async findFileInput(): Promise<Locator | null> {

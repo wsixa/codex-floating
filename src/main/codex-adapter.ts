@@ -272,10 +272,12 @@ export class CodexAdapter {
   /** True only while the official Desktop page is showing its empty home view. */
   async isDesktopHomeConversation(): Promise<boolean> {
     if (!this.isDesktopClientPage()) return false;
-    const selectedId = await this.selectedDesktopThreadId();
-    if (selectedId) return false;
     const composer = await this.findComposer(false, true);
     return Boolean(composer);
+  }
+
+  async currentDesktopConversationId(): Promise<string | null> {
+    return this.isDesktopClientPage() ? this.selectedDesktopThreadId() : null;
   }
 
   async listConversations(): Promise<ConversationSummary[]> {
@@ -479,7 +481,10 @@ export class CodexAdapter {
 
   private async selectedDesktopThreadId(): Promise<string | null> {
     const selected = this.page.locator('[data-app-action-sidebar-thread-row][data-app-action-sidebar-thread-selected="true"]').first();
-    return (await selected.getAttribute('data-app-action-sidebar-thread-id').catch(() => null))?.trim() || null;
+    // The selected row is frequently detached while Desktop switches between
+    // the thread and home views. Never let that transient state consume the
+    // default Playwright timeout and hold the global IPC operation open.
+    return (await selected.getAttribute('data-app-action-sidebar-thread-id', { timeout: PROBE_TIMEOUT }).catch(() => null))?.trim() || null;
   }
 
   private async composerStillContains(composer: Locator, value: string): Promise<boolean> {
@@ -489,7 +494,7 @@ export class CodexAdapter {
         ? element.value
         : element.textContent ?? '';
       return current.trim() === expected;
-    }, value).catch(() => false);
+    }, value, { timeout: PROBE_TIMEOUT }).catch(() => false);
   }
 
   private async findFileInput(): Promise<Locator | null> {
@@ -503,20 +508,20 @@ export class CodexAdapter {
 
   private async listDesktopConversations(): Promise<ConversationSummary[]> {
     const candidates = this.page.locator('[data-app-action-sidebar-thread-row][data-app-action-sidebar-thread-id]');
-    const count = await candidates.count().catch(() => 0);
-    const results: ConversationSummary[] = [];
-    const seen = new Set<string>();
-    for (let index = 0; index < Math.min(count, 200); index += 1) {
-      const item = candidates.nth(index);
-      const id = (await item.getAttribute('data-app-action-sidebar-thread-id').catch(() => null))?.trim() ?? '';
-      if (!id || seen.has(id)) continue;
-      const titleAttribute = (await item.getAttribute('data-app-action-sidebar-thread-title').catch(() => null))?.trim() ?? '';
-      const title = titleAttribute || (await item.innerText({ timeout: PROBE_TIMEOUT }).catch(() => '')).trim();
-      if (!title) continue;
-      seen.add(id);
-      results.push({ id, title: title.replace(/\s+/gu, ' ').slice(0, 160) });
-    }
-    return results;
+    return candidates.evaluateAll((nodes) => {
+      const results: Array<{ id: string; title: string }> = [];
+      const seen = new Set<string>();
+      for (const node of nodes.slice(0, 200)) {
+        const id = node.getAttribute('data-app-action-sidebar-thread-id')?.trim() ?? '';
+        if (!id || seen.has(id)) continue;
+        const titleAttribute = node.getAttribute('data-app-action-sidebar-thread-title')?.trim() ?? '';
+        const title = titleAttribute || (node.textContent ?? '').trim();
+        if (!title) continue;
+        seen.add(id);
+        results.push({ id, title: title.replace(/\s+/gu, ' ').slice(0, 160) });
+      }
+      return results;
+    }).catch(() => []);
   }
 
   /** Upload through the same menu/file chooser used by the official client. */

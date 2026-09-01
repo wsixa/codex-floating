@@ -30,7 +30,10 @@ export class CodexDesktopService implements CodexSessionService {
   private pendingTitle: string | null = null;
   private statusRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private conversationRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private conversationListInFlight: Promise<ConversationSummary[]> | null = null;
+  private conversationRefreshInFlight: Promise<void> | null = null;
   private draftConversationId: string | null = null;
+  private draftExistingThreadIds: Set<string> | null = null;
   private readonly statusListeners = new Set<(status: CodexSessionStatus) => void>();
   private readonly threadListeners = new Set<() => void>();
 
@@ -113,6 +116,8 @@ export class CodexDesktopService implements CodexSessionService {
     this.statusRefreshTimer = null;
     if (this.conversationRefreshTimer) clearTimeout(this.conversationRefreshTimer);
     this.conversationRefreshTimer = null;
+    this.conversationListInFlight = null;
+    this.conversationRefreshInFlight = null;
     const browser = this.browser;
     this.browser = null;
     this.page = null;
@@ -122,6 +127,7 @@ export class CodexDesktopService implements CodexSessionService {
     this.conversations = [];
     this.pendingTitle = null;
     this.draftConversationId = null;
+    this.draftExistingThreadIds = null;
     // Browser.close() on a connectOverCDP browser detaches Playwright's
     // transport; it does not close the remote Electron application.
     if (browser) await closeBrowserConnection(browser);
@@ -149,16 +155,30 @@ export class CodexDesktopService implements CodexSessionService {
   }
 
   async listConversations(): Promise<ConversationSummary[]> {
-    const adapter = this.requireAdapter();
-    const listed = await adapter.listConversations();
-    await this.refreshActiveConversationId();
-    this.conversations = this.mergeDraftConversation(applyPendingTitle(listed, this.pendingTitle, this.activeThreadId));
-    return this.conversations.map((item) => ({ ...item }));
+    if (this.conversationListInFlight) return this.conversationListInFlight;
+    const list = (async () => {
+      const adapter = this.requireAdapter();
+      const listed = await adapter.listConversations();
+      await this.refreshActiveConversationId();
+      this.conversations = this.mergeDraftConversation(applyPendingTitle(listed, this.pendingTitle, this.activeThreadId));
+      return this.conversations.map((item) => ({ ...item }));
+    })();
+    this.conversationListInFlight = list;
+    try {
+      return await list;
+    } finally {
+      if (this.conversationListInFlight === list) this.conversationListInFlight = null;
+    }
   }
 
   async newConversation(): Promise<void> {
-    await this.requireAdapter().startNewConversation();
+    const adapter = this.requireAdapter();
+    const existingThreadIds = new Set(this.conversations.map((item) => item.id));
+    const selectedThreadId = await adapter.currentDesktopConversationId();
+    if (selectedThreadId) existingThreadIds.add(selectedThreadId);
+    await adapter.startNewConversation();
     this.draftConversationId = `desktop-draft:${Date.now()}`;
+    this.draftExistingThreadIds = existingThreadIds;
     this.activeThreadId = this.draftConversationId;
     this.pendingTitle = null;
     this.conversations = this.mergeDraftConversation(this.conversations);
@@ -170,6 +190,7 @@ export class CodexDesktopService implements CodexSessionService {
     await this.requireAdapter().switchConversation(id, knownUrl);
     this.activeThreadId = id;
     this.draftConversationId = null;
+    this.draftExistingThreadIds = null;
     this.pendingTitle = null;
     await this.refreshConversations().catch(() => undefined);
     await this.refreshStatus();
@@ -178,6 +199,7 @@ export class CodexDesktopService implements CodexSessionService {
   async deleteConversation(id: string, knownUrl?: string): Promise<ConversationSummary[]> {
     if (id === this.draftConversationId) {
       this.draftConversationId = null;
+      this.draftExistingThreadIds = null;
       this.activeThreadId = null;
       this.pendingTitle = null;
       this.conversations = this.conversations.filter((item) => item.id !== id);
@@ -218,7 +240,9 @@ export class CodexDesktopService implements CodexSessionService {
   }
 
   async uploadAndSend(capture: CapturePayload, text?: string): Promise<void> {
-    await this.requireAdapter().uploadAndSend(capture, text);
+    const adapter = this.requireAdapter();
+    if (this.draftConversationId) await adapter.ensureDesktopDraftConversation();
+    await adapter.uploadAndSend(capture, text);
     this.scheduleConversationRefresh();
     await this.refreshStatus();
   }
@@ -272,24 +296,36 @@ export class CodexDesktopService implements CodexSessionService {
 
   private async refreshConversations(): Promise<void> {
     if (!this.adapter) return;
-    const listed = await this.adapter.listConversations();
-    await this.refreshActiveConversationId();
-    this.conversations = this.mergeDraftConversation(applyPendingTitle(listed, this.pendingTitle, this.activeThreadId));
-    this.emitThreadsChanged();
+    if (this.conversationRefreshInFlight) return this.conversationRefreshInFlight;
+    const refresh = (async () => {
+      await this.listConversations();
+      this.emitThreadsChanged();
+    })();
+    this.conversationRefreshInFlight = refresh;
+    try {
+      await refresh;
+    } finally {
+      if (this.conversationRefreshInFlight === refresh) this.conversationRefreshInFlight = null;
+    }
   }
 
   private async refreshActiveConversationId(): Promise<void> {
     if (!this.page) return;
-    const selected = this.page.locator('[data-app-action-sidebar-thread-row][data-app-action-sidebar-thread-selected="true"]').first();
-    const id = await selected.getAttribute('data-app-action-sidebar-thread-id').catch(() => null);
+    const id = await this.adapter?.currentDesktopConversationId();
     if (id?.trim()) {
       // While a Desktop draft is opening, the sidebar can keep the previous
       // row selected for a few frames. Preserve the draft until Codex assigns
       // the newly sent turn a real thread ID.
-      if (this.draftConversationId && this.activeThreadId === this.draftConversationId && await this.adapter?.isDesktopHomeConversation()) return;
+      if (this.draftConversationId && this.activeThreadId === this.draftConversationId) {
+        if (await this.adapter?.isDesktopHomeConversation()) return;
+        if (this.draftExistingThreadIds?.has(id.trim())) return;
+      }
       const previousDraft = this.draftConversationId;
       this.activeThreadId = id.trim();
-      if (previousDraft && previousDraft !== this.activeThreadId) this.draftConversationId = null;
+      if (previousDraft && previousDraft !== this.activeThreadId) {
+        this.draftConversationId = null;
+        this.draftExistingThreadIds = null;
+      }
       return;
     }
     if (!this.draftConversationId) this.activeThreadId = null;

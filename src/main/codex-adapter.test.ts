@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { modelMenuLabel } from './codex-adapter';
+import type { Page } from 'playwright';
+import { describe, expect, it, vi } from 'vitest';
+import { CodexAdapter, modelMenuLabel } from './codex-adapter';
 
 describe('model menu parsing', () => {
   it('keeps model choices and removes reasoning controls', () => {
@@ -11,5 +12,18 @@ describe('model menu parsing', () => {
     expect(modelMenuLabel('Reasoning effort')).toBeNull();
     expect(modelMenuLabel('High')).toBeNull();
     expect(modelMenuLabel('xhigh')).toBeNull();
+  });
+});
+
+describe('Desktop conversation detection', () => {
+  it('uses a short timeout while the selected row is being replaced', async () => {
+    const getAttribute = vi.fn(async () => null);
+    const page = {
+      url: () => 'app://-/index.html',
+      locator: () => ({ first: () => ({ getAttribute }) }),
+    } as unknown as Page;
+
+    await expect(new CodexAdapter(page).currentDesktopConversationId()).resolves.toBeNull();
+    expect(getAttribute).toHaveBeenCalledWith('data-app-action-sidebar-thread-id', { timeout: 700 });
   });
 });

@@ -19,6 +19,7 @@ export interface UiText {
   loginBanner: string;
   apiAccessBanner: string;
   apiResponse: string;
+  user: string;
   messageLabel: string;
   messagePlaceholder: string;
   messageAria: string;
@@ -113,6 +114,7 @@ const zhCN: UiText = {
   loginBanner: '请在官方 Codex 中完成登录，然后点击重新连接',
   apiAccessBanner: 'API 连接尚未准备好，请确认服务正在运行后重新连接',
   apiResponse: 'API 回复',
+  user: '你',
   messageLabel: '发送内容',
   messagePlaceholder: '输入消息，发送给 Codex…',
   messageAria: '发送给 Codex 的消息',
@@ -207,6 +209,7 @@ const enUS: UiText = {
   loginBanner: 'Sign in in official Codex, then reconnect',
   apiAccessBanner: 'API connection is not ready. Confirm the service is running and reconnect.',
   apiResponse: 'API response',
+  user: 'You',
   messageLabel: 'MESSAGE',
   messagePlaceholder: 'Ask Codex anything…',
   messageAria: 'Message to Codex',

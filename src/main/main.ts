@@ -591,7 +591,10 @@ async function sendMessage(input: SendMessageInput): Promise<AppState> {
   // Rename synchronously so the renderer does not wait for the remote reply
   // or the Codex history sidebar to refresh.
   if (titleContent.length <= 30_000) prepareConversationTitle(titleContent);
-  updateState({ isSending: true, lastError: null });
+  // A response belongs to exactly one submitted turn. Clear the prior value
+  // before sending so a slow Desktop reply cannot be displayed as this turn's
+  // result by the renderer.
+  updateState({ isSending: true, lastError: null, lastResponse: null });
   try {
     const response = state.config.mode === 'api'
       ? await apiSessionService.sendMessage(content, attachments)
@@ -659,7 +662,7 @@ async function captureAndSend(input: CaptureAndSendInput = {}): Promise<AppState
   // A capture can take several asynchronous steps; show its conversation title
   // before screen acquisition starts so the rename is visible immediately.
   if (titlePrompt.length <= 30_000) prepareConversationTitle(titlePrompt);
-  updateState({ isCapturing: true, isSending: true, lastError: null });
+  updateState({ isCapturing: true, isSending: true, lastError: null, lastResponse: null });
   let selectedRegion: CaptureRegion | undefined = input.region;
   let restoreWindow = false;
   try {

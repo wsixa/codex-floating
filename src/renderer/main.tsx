@@ -35,6 +35,13 @@ function modelName(id: string): string {
   return MODEL_NAMES[id] ?? id;
 }
 
+type LocalMessage = {
+  id: number;
+  role: 'user' | 'assistant';
+  text: string;
+  attachmentNames?: string[];
+};
+
 /** The renderer is a shell; history and message rendering stay in Codex. */
 export function App() {
   const [appState, setAppState] = useState<AppState | null>(null);
@@ -48,8 +55,16 @@ export function App() {
   const [modelRefreshing, setModelRefreshing] = useState(false);
   const [modelRefreshed, setModelRefreshed] = useState(false);
   const [visibleError, setVisibleError] = useState<string | null>(null);
+  const [messages, setMessages] = useState<LocalMessage[]>([]);
   const messageRef = useRef('');
+  const messageIdRef = useRef(0);
+  const messageListRef = useRef<HTMLDivElement>(null);
   const overlaySyncRef = useRef<Promise<void>>(Promise.resolve());
+
+  const appendMessage = (message: Omit<LocalMessage, 'id'>) => {
+    const next = { ...message, id: ++messageIdRef.current };
+    setMessages((current) => [...current, next]);
+  };
 
   const syncOfficialPageOverlay = (open: boolean) => {
     overlaySyncRef.current = overlaySyncRef.current
@@ -106,6 +121,11 @@ export function App() {
     syncOfficialPageOverlay(false);
   }, []);
 
+  useEffect(() => {
+    const list = messageListRef.current;
+    if (list) list.scrollTop = list.scrollHeight;
+  }, [messages, busy]);
+
   if (startupError) return <div className="shell-error" role="alert"><X size={16} /> {startupError}</div>;
   if (!appState) return <div className="shell-loading"><LoaderCircle size={16} className="spin" /> Loading Codex...</div>;
 
@@ -118,8 +138,17 @@ export function App() {
   const send = async () => {
     if (!canSend) return;
     const draft = { text: message.trim(), attachments };
+    const attachmentNames = draft.attachments.map((attachment) => attachment.name);
+    appendMessage({
+      role: 'user',
+      text: draft.text || attachmentNames.join(', '),
+      attachmentNames: attachmentNames.length > 0 ? attachmentNames : undefined,
+    });
     messageRef.current = ''; setMessage(''); setAttachments([]); setBusy(true);
-    try { await window.codexAssistant.sendMessage(draft); } catch {
+    try {
+      const next = await window.codexAssistant.sendMessage(draft);
+      if (next.lastResponse) appendMessage({ role: 'assistant', text: next.lastResponse });
+    } catch {
       if (!messageRef.current) { messageRef.current = draft.text; setMessage(draft.text); setAttachments(draft.attachments); }
     } finally { setBusy(false); }
   };
@@ -152,6 +181,10 @@ export function App() {
     if (official) void window.codexAssistant.openSettings();
     setSettingsOpen((value) => !value);
   };
+  const newConversation = async () => {
+    setMessages([]);
+    await window.codexAssistant.newConversation();
+  };
 
   if (appState.config.miniMode) {
     return <MiniShell appState={appState} connectionTone={connectionTone} themeClass={themeClass} />;
@@ -174,7 +207,7 @@ export function App() {
         <div className="menu-anchor toolbar-menu-wrap">
           <button className="toolbar-menu-trigger" title={text.moreActions} aria-label={text.moreActions} aria-expanded={actionMenuOpen} onClick={() => { setActionMenuOpen((value) => !value); setAttachmentMenuOpen(false); }}><Ellipsis size={16} /></button>
           {actionMenuOpen && <div className="command-menu menu-surface" role="menu">
-            <button role="menuitem" onClick={() => { setActionMenuOpen(false); void window.codexAssistant.newConversation(); }}><Plus size={15} /><span>{text.newConversation}</span></button>
+            <button role="menuitem" onClick={() => { setActionMenuOpen(false); void newConversation(); }}><Plus size={15} /><span>{text.newConversation}</span></button>
             {official && <button role="menuitem" onClick={() => { setActionMenuOpen(false); void window.codexAssistant.openModelMenu(); }}><Sparkles size={15} /><span>{text.model}</span></button>}
             <button role="menuitem" disabled={busy} onClick={() => void capture(false)}><Camera size={15} /><span>{text.attachFullScreen}</span></button>
             <button role="menuitem" disabled={busy} onClick={() => void capture(true)}><Crosshair size={15} /><span>{text.attachRegion}</span></button>
@@ -189,7 +222,15 @@ export function App() {
       </div>
     </header>
     {official ? <div className="embedded-page-label" data-testid="official-page-shell">{appState.page?.title || text.codexPage}</div> : <section className="api-workbench" aria-label={text.messageLabel}>
-      {appState.lastResponse ? <div className="api-response">{appState.lastResponse}</div> : <div className="api-empty"><Sparkles size={20} /><span>{text.ready}</span></div>}
+      <div className="api-message-list" ref={messageListRef} aria-live="polite">
+        {messages.length === 0 && <div className="api-empty"><Sparkles size={20} /><span>{text.ready}</span></div>}
+        {messages.map((item) => <div className={`api-message api-message-${item.role}`} key={item.id}>
+          <div className="api-message-label">{item.role === 'user' ? text.user : 'Codex'}</div>
+          <div className="api-message-bubble">{item.text}</div>
+          {item.attachmentNames && <div className="api-message-attachments">{item.attachmentNames.join(', ')}</div>}
+        </div>)}
+        {busy && <div className="api-message api-message-assistant api-message-pending"><div className="api-message-label">Codex</div><div className="api-message-bubble"><LoaderCircle size={14} className="spin" /></div></div>}
+      </div>
       {attachments.length > 0 && <div className="attachment-drafts">{attachments.map((item) => <div className="attachment-draft" data-testid="attachment-draft" key={item.id}><span>{item.previewDataUrl ? <img src={item.previewDataUrl} alt={item.name} /> : <FileText size={16} />}</span><b className="attachment-name" title={item.name}>{item.name}</b><button title={text.removeAttachment} aria-label={`${text.removeAttachment}: ${item.name}`} onClick={() => setAttachments((current) => current.filter((value) => value.id !== item.id))}><X size={13} /></button></div>)}</div>}
       <textarea value={message} onChange={(event) => { messageRef.current = event.target.value; setMessage(event.target.value); }} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void send(); }} placeholder={attachments.length ? text.messageAttachmentPlaceholder : text.messagePlaceholder} aria-label={text.messageAria} rows={4} />
       <div className="composer-row no-drag"><div className="attachment-wrap menu-anchor"><button className="attachment-trigger" title={text.addAttachment} aria-label={text.addAttachment} aria-expanded={attachmentMenuOpen} onClick={() => { setAttachmentMenuOpen((value) => !value); setActionMenuOpen(false); }} disabled={busy}><Plus size={18} /></button>{attachmentMenuOpen && <div className="attachment-menu menu-surface" role="menu"><button role="menuitem" onClick={() => void capture(false, false)}><Camera size={14} /> {text.attachFullScreen}</button><button role="menuitem" onClick={() => void capture(true, false)}><Crosshair size={14} /> {text.attachRegion}</button><button role="menuitem" onClick={() => void pickFiles()}><Upload size={14} /> {text.attachFiles}</button></div>}</div><span className="send-hint">{busy ? text.sending : text.sendHint}</span><button className="send" title={text.sendMessage} aria-label={text.sendMessage} onClick={() => void send()} disabled={!canSend}>{busy ? <LoaderCircle size={17} className="spin" /> : <Send size={17} />}</button></div>

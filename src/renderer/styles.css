@@ -13,7 +13,7 @@ button { color: inherit; border: 0; cursor: pointer; }
 button:disabled { cursor: default; opacity: .48; }
 button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid #5ca5ff; outline-offset: 1px; }
 
-.floating-shell, .mini-shell {
+.floating-shell {
   --bg: #10151b;
   --surface: #171e27;
   --surface-raised: #202934;
@@ -87,7 +87,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .status-dot.pending { background: #d99b43; animation: pulse 1.4s ease-in-out infinite; }
 
 .model-control {
-  min-width: 118px;
+  min-width: 106px;
   max-width: 190px;
   height: 30px;
   display: grid;
@@ -110,6 +110,10 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .model-control button { width: 25px; height: 24px; display: grid; place-items: center; border-radius: 4px; color: var(--muted); background: transparent; }
 .model-control button:hover { color: var(--text); background: var(--surface-hover); }
 .model-control button.model-refreshed { color: #43b881; }
+.reasoning-control { min-width: 90px; max-width: 130px; height: 30px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 5px; padding: 2px 5px; color: var(--muted); background: var(--surface-raised); border: 1px solid var(--border); border-radius: 6px; }
+.reasoning-control:hover, .reasoning-control:focus-within { border-color: var(--border-strong); }
+.reasoning-control label { font-size: 10px; white-space: nowrap; }
+.reasoning-control select { min-width: 0; width: 100%; height: 24px; padding: 0 2px; overflow: hidden; color: var(--text); background: transparent; border: 0; font-size: 10px; font-weight: 550; text-overflow: ellipsis; }
 .toolbar-drag-space { min-width: 0; flex: 1 1 auto; height: 100%; }
 
 .toolbar-actions, .mini-actions { display: flex; align-items: center; flex: 0 0 auto; gap: 2px; margin-left: auto; }
@@ -129,10 +133,14 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 
 .menu-anchor { position: relative; }
 .menu-surface { color: var(--text); background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: 7px; box-shadow: 0 12px 28px rgb(0 0 0 / 34%); }
-.command-menu { position: absolute; top: 34px; right: 0; z-index: 30; width: 196px; padding: 5px; }
+.command-menu { position: absolute; top: 34px; right: 0; z-index: 30; width: min(258px, calc(100vw - 12px)); padding: 5px; }
 .command-menu button, .attachment-menu button { width: 100%; min-height: 32px; display: flex; align-items: center; gap: 9px; padding: 6px 8px; color: var(--muted); text-align: left; background: transparent; border-radius: 5px; }
 .command-menu button:hover, .attachment-menu button:hover { color: var(--text); background: var(--surface-hover); }
 .command-menu button svg, .attachment-menu button svg { flex: 0 0 auto; }
+.project-menu-summary { display: grid; gap: 3px; padding: 7px 8px 8px; margin-bottom: 3px; border-bottom: 1px solid var(--border); min-width: 0; }
+.project-menu-label { display: flex; align-items: center; gap: 7px; color: var(--subtle); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+.project-menu-summary strong { overflow: hidden; color: var(--text); font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.project-directory { overflow: hidden; color: var(--subtle); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 
 .embedded-page-label { position: absolute; inset: 48px 0 0; display: grid; place-items: center; padding: 16px; color: var(--subtle); background: var(--bg); font-size: 11px; text-align: center; pointer-events: none; }
 .api-workbench { position: absolute; inset: 48px 0 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 8px; padding: 12px; background: var(--bg); }
@@ -178,13 +186,28 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in
 .range-row output { color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
 .settings-popover .toggle-row { grid-template-columns: 16px 1fr; align-items: center; gap: 8px; color: var(--text); }
 .toggle-row input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
-
-.mini-shell { min-width: 0; min-height: 0; }
-.mini-toolbar { width: 100%; height: 100%; min-height: 48px; display: flex; align-items: center; gap: 7px; padding: 0 8px; background: var(--surface); border: 1px solid var(--border); -webkit-app-region: drag; }
-.mini-brand { min-width: 70px; }
-.mini-badge { color: var(--subtle); font-size: 8px; letter-spacing: 0; }
-.mini-status { flex: 0 1 auto; }
-.mini-model { min-width: 0; flex: 1 1 auto; overflow: hidden; color: var(--muted); font-size: 10px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.project-popover { position: absolute; top: 54px; right: 8px; z-index: 40; width: min(330px, calc(100vw - 16px)); max-height: calc(100vh - 62px); overflow: auto; display: grid; gap: 10px; padding: 12px; }
+.project-search { display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 8px; color: var(--subtle); background: var(--surface); border: 1px solid var(--border); border-radius: 5px; }
+.project-search:focus-within { border-color: var(--accent); }
+.project-search input { min-width: 0; flex: 1; color: var(--text); background: transparent; border: 0; outline: 0; }
+.project-search input::placeholder { color: var(--subtle); }
+.project-list { display: grid; gap: 3px; min-height: 54px; }
+.project-option { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 8px; color: var(--muted); text-align: left; background: transparent; border: 1px solid transparent; border-radius: 5px; }
+.project-option:hover, .project-option.is-selected { color: var(--text); background: var(--surface-hover); border-color: var(--border); }
+.project-option > span { display: grid; min-width: 0; flex: 1; gap: 2px; }
+.project-option b, .project-option small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-option b { font-size: 11px; font-weight: 600; }
+.project-option small { color: var(--subtle); font-size: 10px; }
+.project-empty { margin: 8px 2px; color: var(--subtle); font-size: 11px; line-height: 1.45; }
+.project-confirm-backdrop { position: absolute; inset: 48px 0 0; z-index: 50; display: grid; place-items: center; padding: 16px; background: rgb(5 9 13 / 48%); }
+.project-confirm { width: min(320px, 100%); display: grid; gap: 8px; padding: 14px; }
+.project-confirm p { margin: 2px 0 0; color: var(--muted); line-height: 1.45; }
+.project-confirm p b { color: var(--text); }
+.project-confirm > small { overflow-wrap: anywhere; color: var(--subtle); font-size: 10px; }
+.project-confirm-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 5px; }
+.project-confirm-actions button { min-height: 30px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 5px; }
+.secondary-action { color: var(--muted); background: var(--surface); border: 1px solid var(--border); }
+.primary-action { color: #fff; background: var(--accent); }
 
 .shell-loading, .shell-error { width: 100vw; height: 100vh; display: flex; align-items: center; gap: 8px; padding: 16px; color: #b9c4cf; background: #10151b; }
 .shell-error { color: #ffb6ba; }
@@ -194,18 +217,22 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in
 
 @media (max-width: 520px) {
   .brand-sub { display: none; }
+  .model-control { grid-template-columns: minmax(0, 1fr) 25px; padding-left: 4px; }
+  .model-control label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .floating-toolbar { gap: 6px; padding-inline: 7px; }
   .model-control { max-width: none; }
 }
 @media (max-width: 400px) {
   .status-label { display: none; }
-  .model-control { min-width: 112px; grid-template-columns: minmax(0, 1fr) 25px; padding-left: 4px; }
+  .model-control { min-width: 100px; grid-template-columns: minmax(0, 1fr) 25px; padding-left: 4px; }
+  .reasoning-control { min-width: 80px; padding-inline: 4px; }
+  .reasoning-control label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .model-control label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .api-workbench { padding: 10px; }
   .send-hint { display: none; }
+  .project-popover { right: 6px; width: calc(100vw - 12px); }
 }
 @media (max-width: 350px) {
   .floating-toolbar { gap: 4px; padding-inline: 5px; }
-  .toolbar-actions, .mini-actions { gap: 0; }
-  .mini-status span:last-child { display: none; }
+  .toolbar-actions { gap: 0; }
 }

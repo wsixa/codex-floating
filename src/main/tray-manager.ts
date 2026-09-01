@@ -4,7 +4,6 @@ import type { Language } from '../shared/types';
 export interface TrayActions {
   toggleVisibility: () => void;
   minimize: () => void;
-  toggleMiniMode: () => void;
   capture: () => void;
   reconnect: () => void;
   quit: () => void;
@@ -43,7 +42,6 @@ export class TrayManager {
     this.tray.setContextMenu(Menu.buildFromTemplate([
       { label: zh ? '显示 / 隐藏' : 'Show / Hide', click: actions.toggleVisibility },
       { label: zh ? '最小化到任务栏' : 'Minimize to taskbar', click: actions.minimize },
-      { label: zh ? '迷你模式' : 'Mini mode', click: actions.toggleMiniMode },
       { type: 'separator' },
       { label: zh ? '截屏并发送' : 'Capture and send', click: actions.capture },
       { label: zh ? '重新连接 Codex' : 'Reconnect Codex', click: actions.reconnect },

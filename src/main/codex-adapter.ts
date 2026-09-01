@@ -2,6 +2,10 @@ import type { Dialog, Locator, Page } from 'playwright';
 import { isPlaceholderConversationTitle, NEW_CONVERSATION_TITLE, type AttachmentPayload, type CapturePayload, type ConversationSummary, type PageState } from '../shared/types';
 
 const ACTION_TIMEOUT = 8_000;
+
+function cssAttributeValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
 const PROBE_TIMEOUT = 700;
 const RESPONSE_TIMEOUT = 120_000;
 const RESPONSE_POLLING = 250;
@@ -125,6 +129,45 @@ export class CodexAdapter {
     } finally {
       await this.page.keyboard.press('Escape').catch(() => undefined);
       if (!wasOpen) await this.page.keyboard.press('Escape').catch(() => undefined);
+    }
+  }
+
+  /** Select the official Desktop reasoning effort from its intelligence menu. */
+  async selectReasoningEffort(effort: import('../shared/types').ReasoningEffort): Promise<void> {
+    if (!this.isDesktopClientPage()) return;
+    const labels: Record<string, RegExp> = {
+      auto: /自动|auto/i,
+      minimal: /最低|minimal/i,
+      low: /低(?:级)?|low/i,
+      medium: /中(?:等)?|medium/i,
+      high: /高(?:级)?|high/i,
+      xhigh: /极高|xhigh/i,
+      max: /最高|max/i,
+    };
+    const trigger = await this.findVisible([
+      this.page.locator('[data-codex-intelligence-trigger="true"]').first(),
+      this.page.locator('[data-codex-intelligence-trigger]').first(),
+    ]);
+    if (!trigger) throw new Error('Codex Desktop intelligence menu was not found.');
+    if ((await trigger.getAttribute('aria-expanded').catch(() => null)) !== 'true') await trigger.click({ timeout: ACTION_TIMEOUT });
+    try {
+      const reasoning = await this.findVisible([
+        this.page.locator('[role="menuitem"][aria-label*="推理强度"]').last(),
+        this.page.locator('[role="menuitem"][aria-label*="Reasoning"]').last(),
+        this.page.getByRole('menuitem', { name: /推理强度|reasoning/i }).last(),
+      ]);
+      if (!reasoning) throw new Error('Codex Desktop reasoning control was not found.');
+      await reasoning.click({ timeout: ACTION_TIMEOUT });
+      const option = await this.findVisible([
+        this.page.getByRole('menuitem', { name: labels[effort] }).last(),
+        this.page.getByRole('option', { name: labels[effort] }).last(),
+        this.page.getByText(labels[effort]).last(),
+      ]);
+      if (!option) throw new Error(`Codex Desktop reasoning effort "${effort}" was not found.`);
+      await option.click({ timeout: ACTION_TIMEOUT }).catch(() => option.dispatchEvent('click', { timeout: ACTION_TIMEOUT }));
+    } finally {
+      await this.page.keyboard.press('Escape').catch(() => undefined);
+      await this.page.keyboard.press('Escape').catch(() => undefined);
     }
   }
 
@@ -294,6 +337,13 @@ export class CodexAdapter {
 
   async currentDesktopConversationId(): Promise<string | null> {
     return this.isDesktopClientPage() ? this.selectedDesktopThreadId() : null;
+  }
+
+  async switchProject(projectId: string): Promise<void> {
+    if (!this.isDesktopClientPage()) throw new Error('Project switching is only available in Codex Desktop.');
+    const project = this.page.locator(`[data-app-action-sidebar-project-row][data-app-action-sidebar-project-id="${cssAttributeValue(projectId)}"]`).first();
+    if (await project.count().catch(() => 0) === 0) throw new Error('The Codex project is not visible in the Desktop sidebar.');
+    await project.click({ timeout: ACTION_TIMEOUT });
   }
 
   async listConversations(): Promise<ConversationSummary[]> {

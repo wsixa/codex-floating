@@ -11,12 +11,16 @@ async function main(): Promise<void> {
   await mkdir('output/playwright', { recursive: true });
   const browser = await chromium.launch({ headless: true, executablePath: browserPath() });
   try {
-    const miniMode = process.env.RENDERER_MINI === '1';
-    const defaultWidth = miniMode ? 340 : 432;
-    const defaultHeight = miniMode ? 72 : 643;
+    // Mini mode is retired. Keep the legacy env var harmless and always
+    // capture the complete floating window.
+    const miniMode = false;
+    const defaultWidth = 432;
+    const defaultHeight = 643;
     const viewportWidth = Number.parseInt(process.env.RENDERER_WIDTH ?? String(defaultWidth), 10);
     const viewportHeight = Number.parseInt(process.env.RENDERER_HEIGHT ?? String(defaultHeight), 10);
-    const page = await browser.newPage({ viewport: { width: Number.isFinite(viewportWidth) ? viewportWidth : defaultWidth, height: Number.isFinite(viewportHeight) ? viewportHeight : defaultHeight }, deviceScaleFactor: 1 });
+    const requestedScale = Number.parseFloat(process.env.RENDERER_SCALE ?? '1');
+    const deviceScaleFactor = Number.isFinite(requestedScale) && requestedScale >= 1 && requestedScale <= 2 ? requestedScale : 1;
+    const page = await browser.newPage({ viewport: { width: Number.isFinite(viewportWidth) ? viewportWidth : defaultWidth, height: Number.isFinite(viewportHeight) ? viewportHeight : defaultHeight }, deviceScaleFactor });
     const responsePreview = process.env.RENDERER_RESPONSE === '1'
       ? 'I reviewed the request and prepared a concise response.\n\nThe result is shown in a focused reading area so longer answers remain easy to scan.'
       : null;
@@ -26,7 +30,7 @@ async function main(): Promise<void> {
       window.addEventListener('error', (event) => console.error('window-error', event.message));
       window.addEventListener('unhandledrejection', (event) => console.error('unhandled', String(event.reason)));
       const state = {
-        config: { mode: '${process.env.RENDERER_MODE === 'api' ? 'api' : 'playwright'}', language: '${process.env.RENDERER_LANGUAGE === 'en-US' ? 'en-US' : 'zh-CN'}', codexUrl: 'https://chatgpt.com/codex', lastPageUrl: null, lastThreadId: null, apiBaseUrl: 'http://127.0.0.1:15721/v1', apiModel: 'gpt-5.6-sol', apiKeyConfigured: false, window: { width: 430, height: 640 }, opacity: .96, alwaysOnTop: true, miniMode: ${miniMode ? 'true' : 'false'}, theme: '${process.env.RENDERER_THEME === 'light' ? 'light' : 'dark'}', launchAtLogin: false },
+        config: { mode: '${process.env.RENDERER_MODE === 'api' ? 'api' : 'playwright'}', language: '${process.env.RENDERER_LANGUAGE === 'en-US' ? 'en-US' : 'zh-CN'}', codexUrl: 'https://chatgpt.com/codex', lastPageUrl: null, lastThreadId: null, apiBaseUrl: 'http://127.0.0.1:15721/v1', apiModel: 'gpt-5.6-sol', reasoningEffort: 'high', apiKeyConfigured: false, window: { width: 430, height: 640 }, opacity: .96, alwaysOnTop: true, miniMode: ${miniMode ? 'true' : 'false'}, theme: '${process.env.RENDERER_THEME === 'light' ? 'light' : 'dark'}', launchAtLogin: false },
         connection: 'connected', connectionMessage: 'Connected to Codex', page: { url: 'https://chatgpt.com/codex/c/demo', title: 'Demo conversation', loggedIn: true, inputAvailable: true, sendAvailable: true }, conversations: [{ id: 'demo', title: 'Review screenshot upload', url: '/c/demo' }, { id: 'ideas', title: 'Ideas for the next release', url: '/c/ideas' }], activeConversationId: 'demo', availableModels: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.2'].map((id) => ({ id, ownedBy: 'mock-upstream' })), isCapturing: false, isSending: false, isDeleting: false, lastError: null, lastResponse: ${JSON.stringify(responsePreview)}, startedAt: Date.now()
       };
       const listeners = new Set();
@@ -41,6 +45,14 @@ async function main(): Promise<void> {
       api.openSettings = async () => undefined;
       api.openModelMenu = async () => { modelRefreshCount += 1; await new Promise((resolve) => setTimeout(resolve, 250)); };
       api.setOfficialPageOverlayOpen = async (open) => { overlayCalls.push(open); if (rejectNextOverlay && open) { rejectNextOverlay = false; throw new Error('mock overlay rejection'); } await new Promise((resolve) => setTimeout(resolve, 20)); };
+      if (${process.env.RENDERER_PROJECT_CONTEXT === '1' ? 'true' : 'false'}) {
+        const projects = [
+          { id: 'platform', name: 'Codex Platform', directory: 'D:\\\\codex-platform' },
+          { id: 'sample', name: 'Sample Web', directory: 'D:\\\\work\\\\sample-web' },
+        ];
+        api.listProjects = async () => projects;
+        api.switchProject = async (id) => projects.find((project) => project.id === id);
+      }
       Object.defineProperty(window, 'codexAssistant', { value: api });
       Object.defineProperty(window, '__windowActions', { value: windowActions });
       Object.defineProperty(window, '__sentMessages', { value: sentMessages });
@@ -51,7 +63,8 @@ async function main(): Promise<void> {
     await page.goto(process.env.RENDERER_URL ?? 'http://127.0.0.1:4173/');
     await page.waitForTimeout(1_000);
     if (pageErrors.length > 0) throw new Error(`Renderer errors: ${pageErrors.join('; ')}`);
-    const screenshotPath = miniMode ? 'output/playwright/renderer-mini-340x72.png' : `output/playwright/renderer-${viewportWidth}x${viewportHeight}.png`;
+    const scaleLabel = String(deviceScaleFactor).replace('.', '_');
+    const screenshotPath = miniMode ? `output/playwright/renderer-mini-${viewportWidth}x${viewportHeight}-scale-${scaleLabel}.png` : `output/playwright/renderer-${viewportWidth}x${viewportHeight}.png`;
     let miniCheck: { layout: { viewportWidth: number; viewportHeight: number; documentWidth: number; documentHeight: number }; text: string } | null = null;
     await page.screenshot({ path: screenshotPath, fullPage: !miniMode });
     if (!miniMode) {
@@ -88,6 +101,11 @@ async function main(): Promise<void> {
         const optionValues = await modelSelect.locator('option').evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value));
         const expected = ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.2'];
         if (expected.some((id) => !optionValues.includes(id))) throw new Error(`Model options are incomplete: ${JSON.stringify(optionValues)}`);
+        const reasoningSelect = page.locator('select#toolbar-reasoning');
+        if (await reasoningSelect.count() !== 1) throw new Error('Reasoning effort selector is missing.');
+        const reasoningValues = await reasoningSelect.locator('option').evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value));
+        const expectedReasoning = ['auto', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+        if (expectedReasoning.some((id) => !reasoningValues.includes(id))) throw new Error(`Reasoning options are incomplete: ${JSON.stringify(reasoningValues)}`);
         const refreshButton = page.locator('.model-control button');
         await refreshButton.click();
         await page.waitForTimeout(30);
@@ -106,6 +124,29 @@ async function main(): Promise<void> {
       }));
       if (layout.documentWidth > layout.viewportWidth || layout.documentHeight > layout.viewportHeight) {
         throw new Error(`Mini layout overflowed the native viewport: ${JSON.stringify(layout)}`);
+      }
+      const miniToolbar = await page.locator('[data-testid="mini-toolbar"]').evaluate((toolbar) => {
+        const toolbarRect = toolbar.getBoundingClientRect();
+        const children = [...toolbar.children].map((element) => {
+          const rect = element.getBoundingClientRect();
+          return { className: element.className, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
+        });
+        return { toolbar: { left: toolbarRect.left, right: toolbarRect.right, top: toolbarRect.top, bottom: toolbarRect.bottom, width: toolbarRect.width, height: toolbarRect.height }, children };
+      });
+      if (miniToolbar.toolbar.left < 0 || miniToolbar.toolbar.top < 0 || miniToolbar.toolbar.right > viewportWidth + 0.01 || miniToolbar.toolbar.bottom > viewportHeight + 0.01) {
+        throw new Error(`Mini toolbar escaped the viewport at scale ${deviceScaleFactor}: ${JSON.stringify(miniToolbar)}`);
+      }
+      for (let index = 1; index < miniToolbar.children.length; index += 1) {
+        const previous = miniToolbar.children[index - 1];
+        const current = miniToolbar.children[index];
+        if (previous && current && previous.right > current.left + 0.5) throw new Error(`Mini toolbar children overlap at scale ${deviceScaleFactor}: ${JSON.stringify(miniToolbar.children)}`);
+      }
+      const actionButtons = await page.locator('[data-testid="mini-actions"] button').evaluateAll((buttons) => buttons.map((button) => {
+        const rect = button.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
+      }));
+      if (actionButtons.some((button) => button.left < 0 || button.right > viewportWidth + 0.01 || button.top < 0 || button.bottom > viewportHeight + 0.01 || button.width < 27 || button.height < 27)) {
+        throw new Error(`Mini controls are clipped or undersized at scale ${deviceScaleFactor}: ${JSON.stringify(actionButtons)}`);
       }
       const miniText = await page.locator('body').innerText();
       if (!miniText.includes('MINI') && !miniText.includes('迷你')) throw new Error('Mini mode indicator is missing.');
@@ -170,6 +211,34 @@ async function main(): Promise<void> {
     if (process.env.RENDERER_ACTION_MENU === '1') {
       await page.getByRole('button', { name: /更多操作|More actions/i }).click();
       await page.screenshot({ path: 'output/playwright/renderer-actions.png', fullPage: true });
+    }
+    if (process.env.RENDERER_PROJECT_CONTEXT === '1') {
+      const assertInViewport = async (selector: string, context: string) => {
+        const box = await page.locator(selector).boundingBox();
+        if (!box || box.x < 0 || box.y < 0 || box.x + box.width > viewportWidth || box.y + box.height > viewportHeight) {
+          throw new Error(`${context} escaped the viewport: ${JSON.stringify(box)}`);
+        }
+      };
+      const actionTrigger = page.getByRole('button', { name: /更多操作|More actions/i });
+      if (await page.getByRole('menu').count() === 0) await actionTrigger.click();
+      if (!await page.getByText(/未选择项目|No project selected/i).count()) throw new Error('The empty project context is missing from the action menu.');
+      await assertInViewport('.command-menu', 'Action menu');
+      await page.getByRole('menuitem', { name: /切换项目|Switch project/i }).click();
+      await assertInViewport('.project-popover', 'Project picker');
+      await page.screenshot({ path: `output/playwright/renderer-project-picker-${viewportWidth}x${viewportHeight}.png`, fullPage: true });
+      const search = page.getByRole('textbox', { name: /搜索项目|Search projects/i });
+      await search.fill('sample');
+      const sampleProject = page.getByRole('option', { name: /Sample Web/i });
+      if (await sampleProject.count() !== 1) throw new Error('Project search did not narrow the available project list.');
+      await sampleProject.click();
+      await actionTrigger.click();
+      if (!await page.getByText('Sample Web').count() || !await page.getByText('D:\\work\\sample-web').count()) throw new Error('Selected project context is not visible in the action menu.');
+      await page.screenshot({ path: `output/playwright/renderer-project-menu-${viewportWidth}x${viewportHeight}.png`, fullPage: true });
+      await page.getByRole('menuitem', { name: /新建$|New$/i }).click();
+      if (!await page.getByRole('dialog', { name: /新建会话|Create conversation/i }).count()) throw new Error('New conversation target confirmation is missing.');
+      await assertInViewport('.project-confirm', 'New conversation confirmation');
+      await page.screenshot({ path: `output/playwright/renderer-project-confirm-${viewportWidth}x${viewportHeight}.png`, fullPage: true });
+      await page.getByRole('button', { name: /关闭面板|Close panel/i }).click();
     }
     if (process.env.RENDERER_SWITCH_LANGUAGE === '1') {
       await ensureSettingsOpen();

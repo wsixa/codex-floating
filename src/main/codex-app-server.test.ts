@@ -8,8 +8,10 @@ const config: AppConfig = {
   codexUrl: 'https://chatgpt.com/codex',
   lastPageUrl: null,
   lastThreadId: null,
+  selectedProjectId: null,
   apiBaseUrl: 'http://127.0.0.1:15721/v1',
   apiModel: 'gpt-5.6-sol',
+  reasoningEffort: 'high',
   apiKeyConfigured: false,
   shortcut: 'Ctrl+Shift+Alt+S',
   window: { width: 430, height: 640 },
@@ -25,6 +27,7 @@ class FakeTransport implements AppServerTransport {
   private nextThread = 1;
   private hideNextStartedThreadFromList = false;
   private readonly threads = new Map<string, { id: string; name: string | null; preview: string; updatedAt: number }>();
+  lastThreadStartCwd: string | null = null;
 
   async start(onMessage: (message: unknown) => void): Promise<void> { this.onMessage = onMessage; }
   async stop(): Promise<void> { this.onMessage = null; }
@@ -41,6 +44,7 @@ class FakeTransport implements AppServerTransport {
       this.hideNextStartedThreadFromList = false;
       this.reply(message.id, { data, nextCursor: null, backwardsCursor: null });
     } else if (method === 'thread/start') {
+      this.lastThreadStartCwd = typeof params?.cwd === 'string' ? params.cwd : null;
       const id = `thread-${this.nextThread++}`;
       const thread = { id, name: null, preview: '', updatedAt: Date.now() / 1000 };
       this.threads.set(id, thread);
@@ -106,6 +110,20 @@ describe('CodexAppServerService', () => {
     await expect(service.sendMessage('检查同步标题', [])).resolves.toBe('同步回复');
     await expect(service.listModels()).resolves.toEqual([{ id: 'gpt-5.6-sol' }]);
     await expect(service.deleteConversation(id!)).resolves.toEqual([]);
+    await service.disconnect();
+  });
+
+  it('uses the selected project directory for new threads', async () => {
+    let transport: FakeTransport | null = null;
+    const service = new CodexAppServerService({
+      cwd: 'D:\\codex-platform',
+      attachmentDirectory: 'D:\\codex-platform\\output\\test-attachments',
+      transportFactory: async () => { transport = new FakeTransport(); return transport; },
+    });
+    await service.connect(config);
+    service.setWorkingDirectory('D:\\Python_Project\\BDC2026');
+    await service.newConversation();
+    expect(transport?.lastThreadStartCwd).toBe('D:\\Python_Project\\BDC2026');
     await service.disconnect();
   });
 });

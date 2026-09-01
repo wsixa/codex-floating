@@ -1,6 +1,7 @@
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type TransportMode = 'playwright' | 'api';
 export type Language = 'zh-CN' | 'en-US';
+export type ReasoningEffort = 'auto' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 // Keep the practical opacity range focused on readable, still-translucent UI.
 export const OPACITY_MIN = 0.72;
@@ -72,8 +73,11 @@ export interface AppConfig {
   lastPageUrl: string | null;
   /** Last official Codex thread selected through app-server. */
   lastThreadId: string | null;
+  /** Last project selected in the floating assistant. */
+  selectedProjectId: string | null;
   apiBaseUrl: string;
   apiModel: string;
+  reasoningEffort: ReasoningEffort;
   apiKeyConfigured: boolean;
   window: WindowBounds;
   opacity: number;
@@ -97,6 +101,17 @@ export interface ConversationSummary {
   url?: string;
 }
 
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  directory: string;
+  isGitRepository: boolean;
+}
+
+export interface ProjectContext extends ProjectSummary {
+  selectedAt: number;
+}
+
 /** A model exposed by the active OpenAI-compatible upstream. */
 export interface ApiModelOption {
   id: string;
@@ -117,6 +132,7 @@ export interface AppState {
   connection: ConnectionState;
   connectionMessage: string;
   page: PageState | null;
+  project: ProjectContext | null;
   conversations: ConversationSummary[];
   activeConversationId: string | null;
   availableModels: ApiModelOption[];
@@ -192,8 +208,10 @@ export interface ConfigPatch {
   codexUrl?: string;
   lastPageUrl?: string | null;
   lastThreadId?: string | null;
+  selectedProjectId?: string | null;
   apiBaseUrl?: string;
   apiModel?: string;
+  reasoningEffort?: ReasoningEffort;
   opacity?: number;
   alwaysOnTop?: boolean;
   miniMode?: boolean;
@@ -204,6 +222,9 @@ export interface ConfigPatch {
 
 export interface IpcApi {
   getState(): Promise<AppState>;
+  listProjects(): Promise<ProjectSummary[]>;
+  getProjectContext(): Promise<ProjectContext | null>;
+  switchProject(projectId: string): Promise<AppState>;
   updateConfig(patch: ConfigPatch): Promise<AppState>;
   setApiKey(input: ApiKeyInput): Promise<AppState>;
   clearApiKey(): Promise<AppState>;
@@ -230,6 +251,9 @@ export interface IpcApi {
 
 export const IPC_CHANNELS = {
   getState: 'app:get-state',
+  listProjects: 'app:list-projects',
+  getProjectContext: 'app:get-project-context',
+  switchProject: 'app:switch-project',
   updateConfig: 'app:update-config',
   setApiKey: 'app:set-api-key',
   clearApiKey: 'app:clear-api-key',
@@ -274,8 +298,11 @@ export function isConfigPatch(value: unknown): value is ConfigPatch {
   if (patch.lastPageUrl !== undefined && patch.lastPageUrl !== null && typeof patch.lastPageUrl !== 'string') return false;
   if (patch.lastThreadId !== undefined && patch.lastThreadId !== null &&
     (typeof patch.lastThreadId !== 'string' || patch.lastThreadId.length < 1 || patch.lastThreadId.length > 512 || /[\u0000-\u001f\u007f]/u.test(patch.lastThreadId))) return false;
+  if (patch.selectedProjectId !== undefined && patch.selectedProjectId !== null &&
+    (typeof patch.selectedProjectId !== 'string' || patch.selectedProjectId.length < 1 || patch.selectedProjectId.length > 512 || /[\u0000-\u001f\u007f]/u.test(patch.selectedProjectId))) return false;
   if (patch.apiBaseUrl !== undefined && typeof patch.apiBaseUrl !== 'string') return false;
   if (patch.apiModel !== undefined && (typeof patch.apiModel !== 'string' || patch.apiModel.trim().length === 0 || patch.apiModel.trim().length > 256 || /[\u0000-\u001f\u007f]/.test(patch.apiModel))) return false;
+  if (patch.reasoningEffort !== undefined && !['auto', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(String(patch.reasoningEffort))) return false;
   if (patch.opacity !== undefined && (typeof patch.opacity !== 'number' || !Number.isFinite(patch.opacity))) return false;
   if (patch.alwaysOnTop !== undefined && typeof patch.alwaysOnTop !== 'boolean') return false;
   if (patch.miniMode !== undefined && typeof patch.miniMode !== 'boolean') return false;

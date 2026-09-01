@@ -7,18 +7,19 @@ import {
   Ellipsis,
   ExternalLink,
   FileText,
+  FolderOpen,
   LoaderCircle,
-  Maximize2,
   Minus,
   Plus,
   RefreshCw,
   Send,
+  Search,
   Settings2,
   Sparkles,
   Upload,
   X,
 } from 'lucide-react';
-import type { ApiModelOption, AppConfig, AppState, AttachmentPayload, Language } from '../shared/types';
+import type { ApiModelOption, AppConfig, AppState, AttachmentPayload, Language, ProjectSummary, ReasoningEffort } from '../shared/types';
 import { getUiText, localizeRuntimeMessage } from './i18n';
 import './styles.css';
 
@@ -42,6 +43,8 @@ type LocalMessage = {
   attachmentNames?: string[];
 };
 
+type ProjectInfo = ProjectSummary;
+
 /** The renderer is a shell; history and message rendering stay in Codex. */
 export function App() {
   const [appState, setAppState] = useState<AppState | null>(null);
@@ -51,6 +54,11 @@ export function App() {
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [projectConfirmOpen, setProjectConfirmOpen] = useState(false);
+  const [projects, setProjects] = useState<ProjectInfo[]>([]);
+  const [projectSearch, setProjectSearch] = useState('');
+  const [currentProject, setCurrentProject] = useState<ProjectInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [modelRefreshing, setModelRefreshing] = useState(false);
   const [modelRefreshed, setModelRefreshed] = useState(false);
@@ -76,8 +84,8 @@ export function App() {
   useEffect(() => {
     const bridge = window.codexAssistant;
     if (!bridge) { setStartupError('Electron IPC bridge is unavailable.'); return undefined; }
-    void bridge.getState().then(setAppState).catch((error: unknown) => setStartupError(error instanceof Error ? error.message : String(error)));
-    return bridge.onState((next) => { setStartupError(null); setAppState(next); });
+    void bridge.getState().then((next) => { setAppState(next); setCurrentProject(next.project); }).catch((error: unknown) => setStartupError(error instanceof Error ? error.message : String(error)));
+    return bridge.onState((next) => { setStartupError(null); setAppState(next); setCurrentProject(next.project); });
   }, []);
 
   useEffect(() => {
@@ -91,7 +99,7 @@ export function App() {
   useEffect(() => {
     const closeMenus = (event: PointerEvent) => {
       const target = event.target as Element | null;
-      if (!target?.closest('.menu-anchor, .settings-popover')) {
+      if (!target?.closest('.menu-anchor, .settings-popover, .project-popover, .project-confirm')) {
         setActionMenuOpen(false);
         setAttachmentMenuOpen(false);
       }
@@ -101,6 +109,8 @@ export function App() {
         setActionMenuOpen(false);
         setAttachmentMenuOpen(false);
         setSettingsOpen(false);
+        setProjectPickerOpen(false);
+        setProjectConfirmOpen(false);
       }
     };
     window.addEventListener('pointerdown', closeMenus);
@@ -111,8 +121,8 @@ export function App() {
     };
   }, []);
 
-  const officialOverlayOpen = appState?.config.mode === 'playwright' && !appState.config.miniMode &&
-    (actionMenuOpen || settingsOpen || Boolean(visibleError));
+  const officialOverlayOpen = appState?.config.mode === 'playwright' &&
+    (actionMenuOpen || settingsOpen || projectPickerOpen || projectConfirmOpen || Boolean(visibleError));
   useEffect(() => {
     syncOfficialPageOverlay(Boolean(officialOverlayOpen));
   }, [officialOverlayOpen]);
@@ -189,10 +199,20 @@ export function App() {
     setMessages([]);
     await window.codexAssistant.newConversation();
   };
-
-  if (appState.config.miniMode) {
-    return <MiniShell appState={appState} connectionTone={connectionTone} themeClass={themeClass} />;
-  }
+  const openProjectPicker = async () => {
+    setActionMenuOpen(false);
+    setProjectSearch('');
+    setProjectPickerOpen(true);
+    try { setProjects(await window.codexAssistant.listProjects()); } catch { setProjects([]); }
+  };
+  const selectProject = async (project: ProjectInfo) => {
+    try {
+      const next = await window.codexAssistant.switchProject(project.id);
+      setCurrentProject(next.project);
+      setCurrentProject(project);
+      setProjectPickerOpen(false);
+    } catch { /* state carries the error when the host supports this contract */ }
+  };
 
   return <main className={`floating-shell ${official ? 'official-shell' : 'api-shell'} ${themeClass}`}>
     <header className="floating-toolbar" data-testid="main-toolbar">
@@ -207,18 +227,24 @@ export function App() {
         onChange={(apiModel) => void window.codexAssistant.updateConfig({ apiModel })}
         onRefresh={() => void refreshModels()}
       /> : <div className="toolbar-drag-space" />}
+      {!official && <ReasoningControl language={appState.config.language} value={appState.config.reasoningEffort} onChange={(reasoningEffort) => void window.codexAssistant.updateConfig({ reasoningEffort })} />}
       <div className="toolbar-actions no-drag">
         <div className="menu-anchor toolbar-menu-wrap">
           <button className="toolbar-menu-trigger" title={text.moreActions} aria-label={text.moreActions} aria-expanded={actionMenuOpen} onClick={() => { setActionMenuOpen((value) => !value); setAttachmentMenuOpen(false); }}><Ellipsis size={16} /></button>
           {actionMenuOpen && <div className="command-menu menu-surface" role="menu">
-            <button role="menuitem" onClick={() => { setActionMenuOpen(false); void newConversation(); }}><Plus size={15} /><span>{text.newConversation}</span></button>
+            <div className="project-menu-summary" role="status">
+              <div className="project-menu-label"><FolderOpen size={14} /><span>{text.currentProject}</span></div>
+              <strong>{currentProject?.name ?? text.noProjectSelected}</strong>
+              <span className="project-directory">{currentProject?.directory ?? text.projectDirectory + ': ' + text.noProjectSelected}</span>
+            </div>
+            <button role="menuitem" onClick={() => void openProjectPicker()}><FolderOpen size={15} /><span>{text.switchProject}</span></button>
+            <button role="menuitem" onClick={() => { setActionMenuOpen(false); setProjectConfirmOpen(true); }}><Plus size={15} /><span>{text.newConversation}</span></button>
             {official && <button role="menuitem" onClick={() => { setActionMenuOpen(false); void window.codexAssistant.openModelMenu(); }}><Sparkles size={15} /><span>{text.model}</span></button>}
             <button role="menuitem" disabled={busy} onClick={() => void capture(false)}><Camera size={15} /><span>{text.attachFullScreen}</span></button>
             <button role="menuitem" disabled={busy} onClick={() => void capture(true)}><Crosshair size={15} /><span>{text.attachRegion}</span></button>
             <button role="menuitem" onClick={() => { setActionMenuOpen(false); void window.codexAssistant.reconnect(); }}><RefreshCw size={15} className={appState.connection === 'connecting' ? 'spin' : ''} /><span>{text.reconnect}</span></button>
             <button role="menuitem" onClick={() => { setActionMenuOpen(false); void window.codexAssistant.openCodex(); }}><ExternalLink size={15} /><span>{text.openCodex}</span></button>
             <button role="menuitem" onClick={openSettings}><Settings2 size={15} /><span>{text.settings}</span></button>
-            <button role="menuitem" onClick={() => { setActionMenuOpen(false); void window.codexAssistant.toggleMiniMode(); }}><Minus size={15} /><span>{text.toggleMini}</span></button>
           </div>}
         </div>
         <button title={text.minimizeWindow} aria-label={text.minimizeWindow} onClick={() => void window.codexAssistant.minimizeWindow()}><Minus size={16} /></button>
@@ -241,6 +267,8 @@ export function App() {
     </section>}
     {visibleError && <div className="error-strip" role="alert"><span>{localizeRuntimeMessage(visibleError, appState.config.language)}</span><button title={text.dismissError} aria-label={text.dismissError} onClick={() => setVisibleError(null)}><X size={13} /></button></div>}
     {settingsOpen && <Settings config={appState.config} onChange={(patch) => void window.codexAssistant.updateConfig(patch)} onClose={() => setSettingsOpen(false)} />}
+    {projectPickerOpen && <ProjectPicker language={appState.config.language} projects={projects} search={projectSearch} currentProject={currentProject} onSearch={setProjectSearch} onSelect={(project) => void selectProject(project)} onClose={() => setProjectPickerOpen(false)} />}
+    {projectConfirmOpen && <ProjectConfirm language={appState.config.language} project={currentProject} onCancel={() => setProjectConfirmOpen(false)} onConfirm={() => { setProjectConfirmOpen(false); void newConversation(); }} />}
   </main>;
 }
 
@@ -257,25 +285,52 @@ function ModelControl({ language, currentModel, models, refreshing, refreshed, o
   </div>;
 }
 
-function MiniShell({ appState, connectionTone, themeClass }: { appState: AppState; connectionTone: string; themeClass: string }) {
-  const text = getUiText(appState.config.language);
-  return <main className={`mini-shell ${themeClass}`} data-testid="mini-shell">
-    <header className="mini-toolbar">
-      <div className="mini-brand"><span className="brand-mark"><Sparkles size={12} /></span><strong>Codex</strong><span className="mini-badge">{text.miniModeLabel}</span></div>
-      <div className="mini-status" title={text.status[appState.connection]}><span className={`status-dot ${connectionTone}`} /><span>{text.status[appState.connection]}</span></div>
-      {appState.config.mode === 'api' && <span className="mini-model" title={`${text.currentModel}: ${modelName(appState.config.apiModel)}`}>{modelName(appState.config.apiModel)}</span>}
-      <div className="mini-actions no-drag">
-        <button title={text.exitMini} aria-label={text.exitMini} onClick={() => void window.codexAssistant.toggleMiniMode()}><Maximize2 size={15} /></button>
-        <button title={text.minimizeWindow} aria-label={text.minimizeWindow} onClick={() => void window.codexAssistant.minimizeWindow()}><Minus size={15} /></button>
-        <button className="close" title={text.quitAssistant} aria-label={text.quitAssistant} onClick={() => void window.codexAssistant.quit()}><X size={15} /></button>
-      </div>
-    </header>
-  </main>;
+function ReasoningControl({ language, value, onChange }: { language: Language; value: ReasoningEffort; onChange: (value: ReasoningEffort) => void }) {
+  const text = getUiText(language);
+  const options: Array<[ReasoningEffort, string, string]> = [
+    ['auto', text.reasoningAuto, 'Auto'],
+    ['minimal', text.reasoningMinimal, 'Minimal'],
+    ['low', text.reasoningLow, 'Low'],
+    ['medium', text.reasoningMedium, 'Medium'],
+    ['high', text.reasoningHigh, 'High'],
+    ['xhigh', text.reasoningXhigh, 'Xhigh'],
+    ['max', text.reasoningMax, 'Max'],
+  ];
+  return <div className="reasoning-control no-drag" title={text.reasoningEffort}>
+    <label htmlFor="toolbar-reasoning">{text.reasoningShort}</label>
+    <select id="toolbar-reasoning" value={value} aria-label={text.reasoningEffort} onChange={(event) => onChange(event.target.value as ReasoningEffort)}>
+      {options.map(([id, label, english]) => <option key={id} value={id}>{label} · {english}</option>)}
+    </select>
+  </div>;
 }
 
 function Settings({ config, onChange, onClose }: { config: AppConfig; onChange: (patch: Partial<AppConfig>) => void; onClose: () => void }) {
   const text = getUiText(config.language);
   return <section className="settings-popover menu-surface no-drag" aria-label={text.preferences}><div className="settings-heading"><strong>{text.preferences}</strong><button title={text.closePanel} aria-label={text.closePanel} onClick={onClose}><X size={14} /></button></div><label>{text.language}<select value={config.language} onChange={(event) => onChange({ language: event.target.value as AppConfig['language'] })}><option value="zh-CN">{text.languageZh}</option><option value="en-US">{text.languageEn}</option></select></label><label>{text.transportMode}<select value={config.mode} onChange={(event) => onChange({ mode: event.target.value as AppConfig['mode'] })}><option value="playwright">{text.officialMode}</option><option value="api">{text.ccswitchMode}</option></select></label><label>{text.theme}<select value={config.theme} onChange={(event) => onChange({ theme: event.target.value as AppConfig['theme'] })}><option value="system">{text.systemTheme}</option><option value="dark">{text.darkTheme}</option><option value="light">{text.lightTheme}</option></select></label><label>{text.opacity}<span className="range-row"><input type="range" min="72" max="100" step="1" value={Math.round(config.opacity * 100)} onChange={(event) => onChange({ opacity: Number(event.target.value) / 100 })} /><output>{Math.round(config.opacity * 100)}%</output></span></label><label className="toggle-row"><input type="checkbox" checked={config.alwaysOnTop} onChange={(event) => onChange({ alwaysOnTop: event.target.checked })} /><span>{text.alwaysOnTop}</span></label><label className="toggle-row"><input type="checkbox" checked={config.launchAtLogin} onChange={(event) => onChange({ launchAtLogin: event.target.checked })} /><span>{text.launchAtLogin}</span></label></section>;
+}
+
+function ProjectPicker({ language, projects, search, currentProject, onSearch, onSelect, onClose }: { language: Language; projects: ProjectInfo[]; search: string; currentProject: ProjectInfo | null; onSearch: (value: string) => void; onSelect: (project: ProjectInfo) => void; onClose: () => void }) {
+  const text = getUiText(language);
+  const normalized = search.trim().toLowerCase();
+  const filtered = projects.filter((project) => !normalized || `${project.name} ${project.directory}`.toLowerCase().includes(normalized));
+  return <section className="project-popover menu-surface no-drag" aria-label={text.switchProject}>
+    <div className="settings-heading"><strong>{text.switchProject}</strong><button title={text.closePanel} aria-label={text.closePanel} onClick={onClose}><X size={14} /></button></div>
+    <label className="project-search"><Search size={14} /><input value={search} onChange={(event) => onSearch(event.target.value)} placeholder={text.projectSearchPlaceholder} aria-label={text.projectSearch} /></label>
+    <div className="project-list" role="listbox" aria-label={text.switchProject}>
+      {filtered.map((project) => <button className={`project-option ${currentProject?.id === project.id ? 'is-selected' : ''}`} key={project.id} role="option" aria-selected={currentProject?.id === project.id} onClick={() => onSelect(project)}><FolderOpen size={15} /><span><b>{project.name}</b><small>{project.directory}</small></span>{currentProject?.id === project.id && <Check size={14} />}</button>)}
+      {filtered.length === 0 && <p className="project-empty">{projects.length === 0 ? text.projectsUnavailable : text.noProjectSelected}</p>}
+    </div>
+  </section>;
+}
+
+function ProjectConfirm({ language, project, onCancel, onConfirm }: { language: Language; project: ProjectInfo | null; onCancel: () => void; onConfirm: () => void }) {
+  const text = getUiText(language);
+  return <div className="project-confirm-backdrop no-drag" role="presentation"><section className="project-confirm menu-surface" role="dialog" aria-modal="true" aria-label={text.createConversation}>
+    <div className="settings-heading"><strong>{text.createConversation}</strong><button title={text.closePanel} aria-label={text.closePanel} onClick={onCancel}><X size={14} /></button></div>
+    <p>{text.targetProject}: <b>{project?.name ?? text.noProjectSelected}</b></p>
+    <small>{project?.directory ?? text.projectDirectory + ': ' + text.noProjectSelected}</small>
+    <div className="project-confirm-actions"><button className="secondary-action" onClick={onCancel}>{text.cancel}</button><button className="primary-action" onClick={onConfirm}><Plus size={14} />{text.createConversation}</button></div>
+  </section></div>;
 }
 
 const rootElement = document.getElementById('root');

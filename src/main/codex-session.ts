@@ -32,6 +32,8 @@ export interface CodexSessionService {
   uploadAndSend(capture: CapturePayload, text?: string): Promise<string | void>;
   listModels(): Promise<ApiModelOption[]>;
   setModel?(id: string): Promise<void>;
+  setReasoningEffort?(effort: import('../shared/types').ReasoningEffort): Promise<void>;
+  switchProject?(projectId: string): Promise<void>;
   prepareMessageTitle?(content: string): ConversationSummary[];
   onStatus(listener: (status: CodexSessionStatus) => void): () => void;
   onThreadsChanged(listener: () => void): () => void;

@@ -110,6 +110,7 @@ export class CodexAppServerService {
   // fall back to the previously selected conversation.
   private readonly optimisticThreadIds = new Set<string>();
   private activeThreadId: string | null = null;
+  private workingDirectory: string;
   private pendingThreadName: string | null = null;
   private codexHome: string | null = null;
   private codexWatcher: fs.FSWatcher | null = null;
@@ -118,7 +119,13 @@ export class CodexAppServerService {
   private readonly statusListeners = new Set<(status: CodexAppServerStatus) => void>();
   private readonly threadListeners = new Set<() => void>();
 
-  constructor(private readonly options: CodexAppServerOptions) {}
+  constructor(private readonly options: CodexAppServerOptions) {
+    this.workingDirectory = options.cwd;
+  }
+
+  setWorkingDirectory(directory: string): void {
+    this.workingDirectory = directory;
+  }
 
   get currentStatus(): CodexAppServerStatus {
     return { ...this.status };
@@ -200,7 +207,7 @@ export class CodexAppServerService {
   async newConversation(): Promise<void> {
     const config = this.requireConfig();
     const result = asRecord(await this.request('thread/start', {
-      cwd: this.options.cwd,
+      cwd: this.workingDirectory,
       model: config.apiModel,
       ephemeral: false,
       approvalPolicy: 'never',
@@ -281,6 +288,7 @@ export class CodexAppServerService {
         threadId,
         input,
         model: config.apiModel,
+        effort: config.reasoningEffort === 'auto' ? null : config.reasoningEffort,
         approvalPolicy: 'never',
       }));
       const turn = parseTurn(result?.turn);

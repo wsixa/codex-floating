@@ -18,8 +18,10 @@ const DEFAULT_CONFIG: AppConfig = {
   codexUrl: 'https://chatgpt.com/codex',
   lastPageUrl: null,
   lastThreadId: null,
+  selectedProjectId: null,
   apiBaseUrl: process.env.OPENAI_BASE_URL?.trim() || 'http://127.0.0.1:15721/v1',
   apiModel: process.env.OPENAI_MODEL?.trim() || 'gpt-5.6-sol',
+  reasoningEffort: 'high',
   apiKeyConfigured: false,
   window: { width: 430, height: 640 },
   opacity: 0.96,
@@ -31,8 +33,8 @@ const DEFAULT_CONFIG: AppConfig = {
 
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 220;
-const MINI_MIN_WIDTH = 220;
-const MINI_MIN_HEIGHT = 64;
+// Match the renderer's complete compact header dimensions so persisted or
+// resized mini windows cannot reopen in a clipped state.
 
 function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value)
@@ -40,13 +42,11 @@ function clampNumber(value: unknown, min: number, max: number, fallback: number)
     : fallback;
 }
 
-function sanitizeBounds(value: unknown, fallback: WindowBounds, miniMode = false): WindowBounds {
+function sanitizeBounds(value: unknown, fallback: WindowBounds): WindowBounds {
   const raw = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
-  const minWidth = miniMode ? MINI_MIN_WIDTH : MIN_WIDTH;
-  const minHeight = miniMode ? MINI_MIN_HEIGHT : MIN_HEIGHT;
   const bounds: WindowBounds = {
-    width: Math.round(clampNumber(raw.width, minWidth, 1600, fallback.width)),
-    height: Math.round(clampNumber(raw.height, minHeight, 1200, fallback.height)),
+    width: Math.round(clampNumber(raw.width, MIN_WIDTH, 1600, fallback.width)),
+    height: Math.round(clampNumber(raw.height, MIN_HEIGHT, 1200, fallback.height)),
   };
   if (typeof raw.x === 'number' && Number.isFinite(raw.x)) bounds.x = Math.round(raw.x);
   if (typeof raw.y === 'number' && Number.isFinite(raw.y)) bounds.y = Math.round(raw.y);
@@ -160,21 +160,32 @@ export class ConfigService {
     const apiModel = apiModelValue.length > 0 && apiModelValue.length <= 256 && !/[\u0000-\u001f\u007f]/.test(apiModelValue)
       ? apiModelValue
       : defaults.apiModel;
+    const reasoningEffort = ['auto', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(String(raw.reasoningEffort))
+      ? raw.reasoningEffort as AppConfig['reasoningEffort']
+      : defaults.reasoningEffort;
     const lastPageUrl = sanitizePageUrl(raw.lastPageUrl, codexUrl);
     const lastThreadId = typeof raw.lastThreadId === 'string' && raw.lastThreadId.length > 0 && raw.lastThreadId.length <= 512 && !/[\u0000-\u001f\u007f]/u.test(raw.lastThreadId)
       ? raw.lastThreadId
       : null;
-    const miniMode = typeof raw.miniMode === 'boolean' ? raw.miniMode : defaults.miniMode;
+    const selectedProjectId = typeof raw.selectedProjectId === 'string' && raw.selectedProjectId.length > 0 && raw.selectedProjectId.length <= 512 && !/[\u0000-\u001f\u007f]/u.test(raw.selectedProjectId)
+      ? raw.selectedProjectId
+      : null;
+    // Mini mode has been retired. Normalize legacy config files so the app
+    // always opens with the complete floating window.
+    const legacyMiniMode = raw.miniMode === true;
+    const miniMode = false;
     return {
       mode,
       language,
       codexUrl,
       lastPageUrl,
       lastThreadId,
+      selectedProjectId,
       apiBaseUrl,
       apiModel,
+      reasoningEffort,
       apiKeyConfigured: Boolean(this.apiKeyEncrypted || this.environmentApiKey),
-      window: sanitizeBounds(raw.window, defaults.window, miniMode),
+      window: sanitizeBounds(legacyMiniMode ? defaults.window : raw.window, defaults.window),
       // Normalize legacy values below the practical UI floor when loading.
       opacity: clampNumber(raw.opacity, OPACITY_MIN, OPACITY_MAX, defaults.opacity),
       alwaysOnTop: typeof raw.alwaysOnTop === 'boolean' ? raw.alwaysOnTop : defaults.alwaysOnTop,

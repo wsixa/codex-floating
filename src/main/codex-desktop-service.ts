@@ -5,6 +5,7 @@ import type {
   AttachmentPayload,
   CapturePayload,
   ConversationSummary,
+  ReasoningEffort,
 } from '../shared/types';
 import { isPlaceholderConversationTitle, summarizeConversationTitle } from '../shared/types';
 import { CodexAdapter } from './codex-adapter';
@@ -185,6 +186,11 @@ export class CodexDesktopService implements CodexSessionService {
     this.emitThreadsChanged();
   }
 
+  async switchProject(projectId: string): Promise<void> {
+    await this.requireAdapter().switchProject(projectId);
+    await this.refreshStatus();
+  }
+
   async switchConversation(id: string, knownUrl?: string): Promise<void> {
     if (id === this.draftConversationId && id === this.activeThreadId) return;
     await this.requireAdapter().switchConversation(id, knownUrl);
@@ -258,6 +264,11 @@ export class CodexDesktopService implements CodexSessionService {
 
   async setModel(id: string): Promise<void> {
     await this.requireAdapter().selectModel(id);
+    await this.refreshStatus();
+  }
+
+  async setReasoningEffort(effort: ReasoningEffort): Promise<void> {
+    await this.requireAdapter().selectReasoningEffort(effort);
     await this.refreshStatus();
   }
 

@@ -4,16 +4,9 @@ import { OPACITY_MAX, OPACITY_MIN, type AppConfig, type Language, type WindowBou
 
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 220;
-const MINI_MIN_WIDTH = 220;
-const MINI_MIN_HEIGHT = 64;
-// Give the floating header enough room for its status capsule and controls.
-const MINI_WIDTH = 340;
-const MINI_HEIGHT = 72;
 
 export class WindowManager {
   private window: BrowserWindow | null = null;
-  private miniMode = false;
-  private expandedBounds: WindowBounds | null = null;
   private allowClose = false;
   private rendererOrigin: string | null = null;
 
@@ -23,18 +16,17 @@ export class WindowManager {
 
   create(config: AppConfig, onReady?: () => void): BrowserWindow {
     if (this.window && !this.window.isDestroyed()) return this.window;
-    const bounds = this.normalizeBounds(config.window, config.miniMode);
-    this.miniMode = config.miniMode;
+    const bounds = this.normalizeBounds(config.window);
     this.window = new BrowserWindow({
       ...bounds,
-      minWidth: config.miniMode ? MINI_MIN_WIDTH : MIN_WIDTH,
-      minHeight: config.miniMode ? MINI_MIN_HEIGHT : MIN_HEIGHT,
+      minWidth: MIN_WIDTH,
+      minHeight: MIN_HEIGHT,
       frame: false,
       // An opaque native surface is considerably more reliable on Windows
       // machines where Chromium compositing or GPU DLLs are unavailable. The
       // renderer still controls the visual opacity and rounded content.
       transparent: false,
-      resizable: !config.miniMode,
+      resizable: true,
       movable: true,
       alwaysOnTop: config.alwaysOnTop,
       skipTaskbar: false,
@@ -56,10 +48,6 @@ export class WindowManager {
     });
     this.window.setOpacity(config.opacity);
     this.window.setAlwaysOnTop(config.alwaysOnTop, 'floating');
-    if (this.miniMode) {
-      this.window.setMinimumSize(MINI_MIN_WIDTH, MINI_MIN_HEIGHT);
-      this.window.setSize(MINI_WIDTH, MINI_HEIGHT, false);
-    }
     this.window.webContents.setWindowOpenHandler(({ url }) => {
       if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
       return { action: 'deny' };
@@ -129,23 +117,9 @@ export class WindowManager {
   }
 
   toggleMiniMode(): boolean {
-    const window = this.current;
-    if (!window) return this.miniMode;
-    const nextMiniMode = !this.miniMode;
-    if (nextMiniMode) this.expandedBounds = this.getBounds();
-    this.miniMode = nextMiniMode;
-    window.setResizable(!this.miniMode);
-    window.setMinimumSize(this.miniMode ? MINI_MIN_WIDTH : MIN_WIDTH, this.miniMode ? MINI_MIN_HEIGHT : MIN_HEIGHT);
-    if (this.miniMode) {
-      // Apply the compact bounds synchronously so the renderer and persisted
-      // config never observe an intermediate animated size.
-      window.setSize(MINI_WIDTH, MINI_HEIGHT, false);
-    } else {
-      const bounds = this.expandedBounds;
-      if (bounds && bounds.x !== undefined && bounds.y !== undefined) window.setBounds({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }, true);
-      else window.setSize(430, 640, true);
-    }
-    return this.miniMode;
+    // Retained as a compatibility no-op for older callers. Mini mode is
+    // retired and the native window always remains in full mode.
+    return false;
   }
 
   toggleVisibility(): boolean {
@@ -188,17 +162,15 @@ export class WindowManager {
     this.window = null;
   }
 
-  private normalizeBounds(bounds: WindowBounds, miniMode = false): WindowBounds {
+  private normalizeBounds(bounds: WindowBounds): WindowBounds {
     const displays = screen.getAllDisplays();
     const display = displays.find((candidate) => {
       if (bounds.x === undefined || bounds.y === undefined) return false;
       return candidate.workArea.x <= bounds.x && candidate.workArea.x + candidate.workArea.width > bounds.x &&
         candidate.workArea.y <= bounds.y && candidate.workArea.y + candidate.workArea.height > bounds.y;
     }) ?? screen.getPrimaryDisplay();
-    const minWidth = miniMode ? MINI_MIN_WIDTH : MIN_WIDTH;
-    const minHeight = miniMode ? MINI_MIN_HEIGHT : MIN_HEIGHT;
-    const width = miniMode ? MINI_WIDTH : Math.min(Math.max(bounds.width, minWidth), display.workArea.width);
-    const height = miniMode ? MINI_HEIGHT : Math.min(Math.max(bounds.height, minHeight), display.workArea.height);
+    const width = Math.min(Math.max(bounds.width, MIN_WIDTH), display.workArea.width);
+    const height = Math.min(Math.max(bounds.height, MIN_HEIGHT), display.workArea.height);
     const defaultX = display.workArea.x + display.workArea.width - width - 28;
     const defaultY = display.workArea.y + 28;
     const requestedX = bounds.x ?? defaultX;

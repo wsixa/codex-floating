@@ -12,6 +12,7 @@ import { PlaywrightService, type PlaywrightStatus } from './playwright-service';
 import { TrayManager } from './tray-manager';
 import { WindowManager } from './window-manager';
 import { OfficialPageHost } from './official-page-host';
+import { ProjectService } from './project-service';
 import {
   IPC_CHANNELS,
   isCaptureAndSendInput,
@@ -31,6 +32,8 @@ import {
   type CaptureRegion,
   type ConfigPatch,
   type ConversationSummary,
+  type ProjectContext,
+  type ProjectSummary,
   type SendMessageInput,
 } from '../shared/types';
 
@@ -60,6 +63,7 @@ let codexAppServerService: CodexAppServerService;
 let codexDesktopService: CodexDesktopService;
 let apiSessionService: CodexSessionService;
 let state: AppState;
+let projectService: ProjectService;
 let shuttingDown = false;
 let rendererReady = false;
 let boundsPersistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -87,6 +91,7 @@ function initialState(config: AppConfig): AppState {
     connection: status?.state ?? 'disconnected',
     connectionMessage: status?.message ?? 'Starting...',
     page: 'page' in (status ?? {}) ? (status as { page?: AppState['page'] }).page ?? null : null,
+    project: null,
     conversations: [],
     activeConversationId: null,
     availableModels: [],
@@ -97,6 +102,42 @@ function initialState(config: AppConfig): AppState {
     lastResponse: null,
     startedAt,
   };
+}
+
+async function refreshProjectContext(): Promise<ProjectContext | null> {
+  const project = await projectService.getContext(state.config.selectedProjectId);
+  if (project && project.id !== state.config.selectedProjectId) {
+    const config = await configService.update({ selectedProjectId: project.id });
+    updateState({ config, project });
+  } else {
+    updateState({ project });
+  }
+  return project;
+}
+
+async function listProjects(): Promise<ProjectSummary[]> {
+  const projects = await projectService.listProjects();
+  await refreshProjectContext().catch(() => undefined);
+  return projects;
+}
+
+async function switchProject(projectId: string): Promise<AppState> {
+  const project = await projectService.select(projectId);
+  const config = await configService.update({ selectedProjectId: project.id, lastThreadId: null });
+  if (codexAppServerService) codexAppServerService.setWorkingDirectory(project.directory);
+  if (state.config.mode === 'api' && apiSessionService === codexDesktopService && codexDesktopService.switchProject) {
+    await codexDesktopService.switchProject(project.id);
+  }
+  if (apiSessionService === codexAppServerService) {
+    await codexAppServerService.disconnect();
+    await codexAppServerService.connect(config);
+  }
+  updateState({ config, project, activeConversationId: null, conversations: [], lastResponse: null });
+  if (state.config.mode === 'api' && apiSessionService === codexAppServerService && codexAppServerService.currentStatus.state === 'connected') {
+    const conversations = await codexAppServerService.listConversations().catch(() => []);
+    updateState({ conversations, activeConversationId: codexAppServerService.currentConversationId });
+  }
+  return rendererState();
 }
 
 function broadcast(): void {
@@ -379,6 +420,7 @@ function sanitizePageUrl(value: string | undefined): string | null {
 }
 
 async function connectCodex(): Promise<AppState> {
+  await refreshProjectContext().catch(() => undefined);
   if (state.config.mode === 'api') {
     officialPageHost?.setVisible(false);
     embeddedPageUrl = null;
@@ -397,6 +439,7 @@ async function connectCodex(): Promise<AppState> {
     const desktopStatus = await codexDesktopService.connect(state.config);
     let status = desktopStatus;
     if (desktopStatus.state !== 'connected' && desktopStatus.state !== 'login-required') {
+      if (state.project) codexAppServerService.setWorkingDirectory(state.project.directory);
       const appServerStatus = await codexAppServerService.connect(state.config);
       if (appServerStatus.state === 'connected') {
         apiSessionService = codexAppServerService;
@@ -486,8 +529,8 @@ function syncOfficialPageHost(status: PlaywrightStatus): void {
   });
 }
 
-function shouldShowOfficialPage(miniMode = state.config.miniMode): boolean {
-  return state.config.mode === 'playwright' && !miniMode && !officialPageOverlayOpen;
+function shouldShowOfficialPage(): boolean {
+  return state.config.mode === 'playwright' && !officialPageOverlayOpen;
 }
 
 function refreshApiModels(): Promise<ApiModelOption[]> {
@@ -733,6 +776,12 @@ async function deleteConversation(id: string): Promise<AppState> {
 
 function registerIpc(): void {
   secureHandle(IPC_CHANNELS.getState, () => rendererState());
+  secureHandle(IPC_CHANNELS.listProjects, () => withOperation(() => listProjects()));
+  secureHandle(IPC_CHANNELS.getProjectContext, () => withOperation(() => refreshProjectContext()));
+  secureHandle(IPC_CHANNELS.switchProject, (_event, value: unknown) => withOperation(async () => {
+    if (typeof value !== 'string' || !value.trim()) throw new Error('Invalid project id.');
+    return switchProject(value);
+  }));
   secureHandle(IPC_CHANNELS.updateConfig, (_event, value: unknown) => withOperation(async () => {
     if (!isConfigPatch(value)) throw new Error('Invalid configuration patch.');
     const patch = value as ConfigPatch;
@@ -748,9 +797,10 @@ function registerIpc(): void {
     updateState({ config });
     if (patch.mode !== undefined || patch.codexUrl !== undefined || patch.apiBaseUrl !== undefined) {
       await connectCodex();
-    } else if (patch.apiModel !== undefined && state.config.mode === 'api') {
+    } else if ((patch.apiModel !== undefined || patch.reasoningEffort !== undefined) && state.config.mode === 'api') {
       if (apiSessionService === codexDesktopService) {
-        await apiSessionService.setModel?.(config.apiModel);
+        if (patch.apiModel !== undefined) await apiSessionService.setModel?.(config.apiModel);
+        if (patch.reasoningEffort !== undefined) await apiSessionService.setReasoningEffort?.(config.reasoningEffort);
       } else {
         // The app-server captures the model in its active configuration, so
         // reconnect it when a model changes while Desktop CDP is unavailable.
@@ -863,13 +913,9 @@ function registerIpc(): void {
     officialPageOverlayOpen = value;
     officialPageHost?.setVisible(shouldShowOfficialPage());
   });
-  secureHandle(IPC_CHANNELS.toggleMiniMode, async () => {
-    const miniMode = windowManager.toggleMiniMode();
-    officialPageHost?.setVisible(shouldShowOfficialPage(miniMode));
-    const config = await configService.update({ miniMode, window: windowManager.getBounds() ?? undefined });
-    updateState({ config });
-    return rendererState();
-  });
+  // Keep the legacy channel alive for older renderer builds, but never enter
+  // the retired mini mode.
+  secureHandle(IPC_CHANNELS.toggleMiniMode, () => rendererState());
   secureHandle(IPC_CHANNELS.toggleVisibility, () => windowManager.toggleVisibility());
   secureHandle(IPC_CHANNELS.openCodex, () => withOperation(() => {
     if (state.config.mode === 'api') {
@@ -927,9 +973,11 @@ async function createApplication(): Promise<void> {
     cwd: process.cwd(),
     attachmentDirectory: path.join(app.getPath('userData'), 'codex-attachments'),
   });
+  projectService = new ProjectService();
   codexDesktopService = new CodexDesktopService();
   apiSessionService = codexAppServerService;
   state = initialState(config);
+  await refreshProjectContext().catch(() => undefined);
   app.setLoginItemSettings({ openAtLogin: config.launchAtLogin });
   mainWindow = windowManager.create(config, () => broadcast());
   mainWindow.on('move', scheduleBoundsPersistence);
@@ -999,13 +1047,6 @@ async function createApplication(): Promise<void> {
   trayManager.create({
     toggleVisibility: () => windowManager.toggleVisibility(),
     minimize: () => windowManager.minimize(),
-    toggleMiniMode: () => {
-      const miniMode = windowManager.toggleMiniMode();
-      officialPageHost?.setVisible(shouldShowOfficialPage(miniMode));
-      void configService.update({ miniMode, window: windowManager.getBounds() ?? undefined })
-        .then((next) => updateState({ config: next }))
-        .catch((error: unknown) => updateState({ lastError: error instanceof Error ? error.message : String(error) }));
-    },
     capture: () => { void triggerCapture().catch(() => undefined); },
     reconnect: () => { void connectCodex().catch(() => undefined); },
     quit: () => app.quit(),

@@ -8,9 +8,6 @@ export interface UiText {
   status: Record<ConnectionState, string>;
   startupTitle: string;
   startupRestart: string;
-  toggleMini: string;
-  exitMini: string;
-  miniModeLabel: string;
   minimizeWindow: string;
   quitAssistant: string;
   hideAssistant: string;
@@ -69,6 +66,15 @@ export interface UiText {
   modelsEmpty: string;
   modelsUnavailable: string;
   currentModel: string;
+  reasoningEffort: string;
+  reasoningShort: string;
+  reasoningAuto: string;
+  reasoningMinimal: string;
+  reasoningLow: string;
+  reasoningMedium: string;
+  reasoningHigh: string;
+  reasoningXhigh: string;
+  reasoningMax: string;
   codexUrl: string;
   opacity: string;
   theme: string;
@@ -86,6 +92,16 @@ export interface UiText {
   moreActions: string;
   dismissError: string;
   closePanel: string;
+  currentProject: string;
+  noProjectSelected: string;
+  switchProject: string;
+  projectDirectory: string;
+  projectSearch: string;
+  projectSearchPlaceholder: string;
+  projectsUnavailable: string;
+  targetProject: string;
+  createConversation: string;
+  cancel: string;
 }
 
 const zhCN: UiText = {
@@ -103,9 +119,6 @@ const zhCN: UiText = {
   },
   startupTitle: '助手无法启动',
   startupRestart: '请从项目终端关闭并重新启动助手。',
-  toggleMini: '进入迷你模式',
-  exitMini: '退出迷你模式',
-  miniModeLabel: '迷你',
   minimizeWindow: '最小化窗口',
   quitAssistant: '退出助手',
   hideAssistant: '隐藏助手',
@@ -164,6 +177,15 @@ const zhCN: UiText = {
   modelsEmpty: '上游暂未返回模型；配置 CCSwitch 上游后点击刷新。',
   modelsUnavailable: '模型列表暂不可用，将继续使用当前模型。',
   currentModel: '当前配置',
+  reasoningEffort: '思考强度',
+  reasoningShort: '思考',
+  reasoningAuto: '自动',
+  reasoningMinimal: '最低',
+  reasoningLow: '低',
+  reasoningMedium: '中',
+  reasoningHigh: '高',
+  reasoningXhigh: '极高',
+  reasoningMax: '最高',
   codexUrl: 'Codex 地址',
   opacity: '透明度',
   theme: '主题',
@@ -181,6 +203,16 @@ const zhCN: UiText = {
   moreActions: '更多操作',
   dismissError: '关闭错误提示',
   closePanel: '关闭面板',
+  currentProject: '当前项目',
+  noProjectSelected: '未选择项目',
+  switchProject: '切换项目',
+  projectDirectory: '工作目录',
+  projectSearch: '搜索项目',
+  projectSearchPlaceholder: '按名称或目录搜索',
+  projectsUnavailable: '当前连接未提供可用项目。',
+  targetProject: '目标项目',
+  createConversation: '新建会话',
+  cancel: '取消',
 };
 
 const enUS: UiText = {
@@ -198,9 +230,6 @@ const enUS: UiText = {
   },
   startupTitle: 'Assistant could not start',
   startupRestart: 'Close and restart the assistant from the project terminal.',
-  toggleMini: 'Enter mini mode',
-  exitMini: 'Exit mini mode',
-  miniModeLabel: 'MINI',
   minimizeWindow: 'Minimize window',
   quitAssistant: 'Quit assistant',
   hideAssistant: 'Hide assistant',
@@ -259,6 +288,15 @@ const enUS: UiText = {
   modelsEmpty: 'No upstream models returned; configure an upstream in CCSwitch and refresh.',
   modelsUnavailable: 'Model list is unavailable; the current model will remain usable.',
   currentModel: 'Current configuration',
+  reasoningEffort: 'Reasoning effort',
+  reasoningShort: 'Reasoning',
+  reasoningAuto: 'Auto',
+  reasoningMinimal: 'Minimal',
+  reasoningLow: 'Low',
+  reasoningMedium: 'Medium',
+  reasoningHigh: 'High',
+  reasoningXhigh: 'Xhigh',
+  reasoningMax: 'Max',
   codexUrl: 'Codex URL',
   opacity: 'Opacity',
   theme: 'Theme',
@@ -276,6 +314,16 @@ const enUS: UiText = {
   moreActions: 'More actions',
   dismissError: 'Dismiss error',
   closePanel: 'Close panel',
+  currentProject: 'Current project',
+  noProjectSelected: 'No project selected',
+  switchProject: 'Switch project',
+  projectDirectory: 'Working directory',
+  projectSearch: 'Search projects',
+  projectSearchPlaceholder: 'Search by name or directory',
+  projectsUnavailable: 'The current connection does not provide projects.',
+  targetProject: 'Target project',
+  createConversation: 'Create conversation',
+  cancel: 'Cancel',
 };
 
 export function getUiText(language: Language): UiText {

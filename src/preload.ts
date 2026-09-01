@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 import {
   IPC_CHANNELS,
   type AppState,
+  type ProjectSummary,
+  type ProjectContext,
   type ApiModelOption,
   type ApiKeyInput,
   type AttachmentPayload,
@@ -14,6 +16,9 @@ import {
 
 const api: IpcApi = {
   getState: () => ipcRenderer.invoke(IPC_CHANNELS.getState),
+  listProjects: (): Promise<ProjectSummary[]> => ipcRenderer.invoke(IPC_CHANNELS.listProjects),
+  getProjectContext: (): Promise<ProjectContext | null> => ipcRenderer.invoke(IPC_CHANNELS.getProjectContext),
+  switchProject: (projectId: string): Promise<AppState> => ipcRenderer.invoke(IPC_CHANNELS.switchProject, projectId),
   updateConfig: (patch: ConfigPatch) => ipcRenderer.invoke(IPC_CHANNELS.updateConfig, patch),
   setApiKey: (input: ApiKeyInput) => ipcRenderer.invoke(IPC_CHANNELS.setApiKey, input),
   clearApiKey: () => ipcRenderer.invoke(IPC_CHANNELS.clearApiKey),

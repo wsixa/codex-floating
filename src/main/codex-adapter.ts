@@ -8,6 +8,7 @@ const RESPONSE_POLLING = 250;
 
 interface DesktopAssistantSnapshot {
   id: string;
+  turnKey: string;
   text: string;
   final: boolean;
 }
@@ -239,7 +240,7 @@ export class CodexAdapter {
     }
 
     if (!this.isDesktopClientPage()) return undefined;
-    return this.waitForDesktopAssistantResponse(assistantBefore);
+    return this.waitForDesktopAssistantResponse(assistantBefore, value);
   }
 
   async startNewConversation(): Promise<void> {
@@ -520,26 +521,42 @@ export class CodexAdapter {
   private async snapshotDesktopAssistantMessages(): Promise<DesktopAssistantSnapshot[]> {
     return this.page.locator('[data-markdown-text-style="assistant-message"]').evaluateAll((nodes) => nodes.map((node, index) => ({
       id: node.parentElement?.getAttribute('data-response-annotation-target')?.trim() || `index:${index}`,
+      turnKey: node.closest('[data-turn-key]')?.getAttribute('data-turn-key')?.trim() || `turn:${index}`,
       text: (node.textContent ?? '').trim(),
       final: Boolean(node.closest('[data-local-conversation-final-assistant="true"]')),
     }))).catch(() => []);
   }
 
   /** Wait for the final assistant node created by the just-submitted turn. */
-  private async waitForDesktopAssistantResponse(before: DesktopAssistantSnapshot[]): Promise<string | undefined> {
+  private async waitForDesktopAssistantResponse(before: DesktopAssistantSnapshot[], userText: string): Promise<string | undefined> {
     const beforeIds = before.map((item) => item.id);
+    const beforeTurns = before.map((item) => item.turnKey);
     try {
-      const result = await this.page.waitForFunction(({ ids }) => {
-        const nodes = Array.from(document.querySelectorAll('[data-markdown-text-style="assistant-message"]'));
-        for (let index = nodes.length - 1; index >= 0; index -= 1) {
-          const node = nodes[index];
-          const id = node.parentElement?.getAttribute('data-response-annotation-target')?.trim() || `index:${index}`;
-          const text = (node.textContent ?? '').trim();
-          const isFinal = Boolean(node.closest('[data-local-conversation-final-assistant="true"]'));
-          if (text && isFinal && !ids.includes(id)) return text;
+      const result = await this.page.waitForFunction(({ ids, turns, expectedText }) => {
+        const turnNodes = Array.from(document.querySelectorAll('[data-turn-key]'));
+        for (let turnIndex = turnNodes.length - 1; turnIndex >= 0; turnIndex -= 1) {
+          const turn = turnNodes[turnIndex];
+          const turnKey = turn.getAttribute('data-turn-key')?.trim() || '';
+          if (!turnKey || turns.includes(turnKey)) continue;
+          const user = turn.querySelector('[data-user-message-bubble="true"]');
+          if (expectedText) {
+            const actualText = (user?.textContent ?? '').trim().replace(/\s+/gu, ' ');
+            const normalizedExpected = expectedText.trim().replace(/\s+/gu, ' ');
+            if (!user || actualText !== normalizedExpected) continue;
+          } else if (!user) {
+            continue;
+          }
+          const nodes = Array.from(turn.querySelectorAll('[data-markdown-text-style="assistant-message"]'));
+          for (let index = nodes.length - 1; index >= 0; index -= 1) {
+            const node = nodes[index];
+            const id = node.parentElement?.getAttribute('data-response-annotation-target')?.trim() || `${turnKey}:assistant:${index}`;
+            const text = (node.textContent ?? '').trim();
+            const isFinal = Boolean(node.closest('[data-local-conversation-final-assistant="true"]'));
+            if (text && isFinal && !ids.includes(id)) return text;
+          }
         }
         return false;
-      }, { ids: beforeIds }, { timeout: RESPONSE_TIMEOUT, polling: RESPONSE_POLLING });
+      }, { ids: beforeIds, turns: beforeTurns, expectedText: userText }, { timeout: RESPONSE_TIMEOUT, polling: RESPONSE_POLLING });
       const value = await result.jsonValue() as unknown;
       return typeof value === 'string' && value.trim() ? value.trim() : undefined;
     } catch {

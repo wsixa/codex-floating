@@ -1,7 +1,14 @@
 import { CodexDesktopService } from '../src/main/codex-desktop-service';
 import { defaultConfig } from '../src/main/config-service';
 
-/** Read-only smoke check against an already-running official Codex Desktop. */
+/**
+ * Read-only smoke check against an already-running official Codex Desktop.
+ *
+ * This script intentionally never calls newConversation(), sendMessage(),
+ * uploadAndSend(), or deleteConversation(). Write-path verification belongs
+ * to the local mock smoke tests so a user's selected Desktop project cannot
+ * receive test prompts.
+ */
 async function main(): Promise<void> {
   const service = new CodexDesktopService();
   const status = await service.connect({ ...defaultConfig(), mode: 'api' });
@@ -20,6 +27,7 @@ async function main(): Promise<void> {
     activeThreadId: service.currentConversationId,
     modelCount: models.length,
     models: models.slice(0, 32),
+    writeOperations: [],
   }, null, 2));
   await service.disconnect();
 }
@@ -28,4 +36,3 @@ void main().catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });
-

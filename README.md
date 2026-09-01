@@ -111,6 +111,8 @@ npm run smoke:electron
 
 `smoke` 使用本地模拟 Codex 页面验证页面打开、基于语义定位的输入框/发送按钮检测、图片和普通文件上传、新建对话和历史会话切换，不需要账号凭据。`smoke:api` 使用本地 HTTP 模拟 Responses API 验证文本、图片 data URL、响应链和会话切换，并故意延迟首个响应来确认会话摘要在响应到达前已经可见。`perf` 会针对同一个模拟页面连续发送 20 次上传，并报告适配器/上传路径的 p95 耗时，以及测试工具自身的启动、RSS 和 CPU 样本。`RENDERER_ATTACHMENTS=1 npm run screenshot` 会验证附件菜单、截图缩略图和普通文件卡片。它们不代表完整 Electron 进程、Windows 桌面截图或真实 Codex/API 网络模型延迟的测量结果。
 
+`smoke:codex-desktop` 只读取已运行的官方 Desktop 的连接状态、当前线程和模型列表，严格禁止新建会话、发送消息、上传附件或删除会话。所有写入路径测试必须使用上述本地 mock；不要对真实 Desktop 或用户项目发送测试提示词。
+
 要单独检查迷你模式的 260×64 布局，可先启动 `npm run dev` 或 `npx vite preview --host 127.0.0.1 --port 4173`，再运行：
 
 ```powershell

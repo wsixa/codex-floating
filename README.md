@@ -57,11 +57,21 @@ npm run build
 npm start
 ```
 
-### 下载源码后直接使用 EXE
+### 直接下载 EXE
 
-GitHub 源码包本身不包含编译后的安装程序，因此首次从源码运行仍需要
-Node.js 和 `npm install`。在 Windows 开发机上执行下面命令可生成安装包和
-绿色便携版：
+打开项目的 [GitHub Releases](https://github.com/wsixa/codex-floating/releases)
+页面，下载最新版本中的以下任一文件即可：
+
+- `Codex-Floating-Assistant-Setup-*.exe`：安装版，适合长期使用
+- `Codex-Floating-Assistant-Portable-*.exe`：便携版，无需安装
+
+下载后的用户不需要 Node.js、npm 或源码，双击 `.exe` 即可启动。首次启动仍需
+在本机运行官方 Codex Desktop/CLI（或 CCSwitch），并使用自己的 Codex 登录和
+项目数据。
+
+### 从源码构建 EXE
+
+如果需要自行构建，Windows 开发机上执行下面命令可生成安装包和绿色便携版：
 
 ```powershell
 Set-Location D:\codex-platform
@@ -89,9 +99,8 @@ npm run package:win:dir
 
 运行 `release\win-unpacked\Codex Floating Assistant.exe` 即可。
 
-发布给其他 Windows 用户时，建议直接提供 `release` 中的安装程序。用户安装后
-不需要 Node.js 或 npm；仍需在本机运行官方 Codex Desktop/CLI（或 CCSwitch），
-并使用自己的 Codex 登录和项目数据。
+推送形如 `v0.1.0` 的标签后，GitHub Actions 会自动构建并将这些 EXE 发布到
+GitHub Releases，用户可从上面的页面直接下载。
 
 配置文件保存于 `%APPDATA%\codex-floating-assistant\config.json`；CCSwitch 的凭据不会复制到助手配置或日志中，API 地址和密钥状态不会随状态广播返回给悬浮窗渲染进程。
 

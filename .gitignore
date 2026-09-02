@@ -3,6 +3,7 @@ node_modules/
 dist/
 dist-electron/
 output/
+release/
 .playwright-daemon/
 .playwright-profile/
 *.log

@@ -1,0 +1,32 @@
+name: Build Windows app
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  package:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build Windows installer and portable app
+        run: npm run package:win
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-floating-assistant-windows
+          path: |
+            release/*Setup*.exe
+            release/*Portable*.exe

@@ -57,6 +57,42 @@ npm run build
 npm start
 ```
 
+### 下载源码后直接使用 EXE
+
+GitHub 源码包本身不包含编译后的安装程序，因此首次从源码运行仍需要
+Node.js 和 `npm install`。在 Windows 开发机上执行下面命令可生成安装包和
+绿色便携版：
+
+```powershell
+Set-Location D:\codex-platform
+npm install
+npm run package:win
+```
+
+生成文件位于 `release` 目录：
+
+- `Codex-Floating-Assistant-Setup-0.1.0-x64.exe`：安装程序，可创建开始菜单和桌面快捷方式
+- `Codex-Floating-Assistant-Portable-0.1.0-x64.exe`：便携版，复制后即可运行
+
+只生成便携版可执行文件：
+
+```powershell
+npm run package:win:portable
+```
+
+如果所在网络暂时无法访问 GitHub Release 下载地址，可先生成无需安装器工具的
+Windows 应用目录（其中包含可直接运行的 EXE）：
+
+```powershell
+npm run package:win:dir
+```
+
+运行 `release\win-unpacked\Codex Floating Assistant.exe` 即可。
+
+发布给其他 Windows 用户时，建议直接提供 `release` 中的安装程序。用户安装后
+不需要 Node.js 或 npm；仍需在本机运行官方 Codex Desktop/CLI（或 CCSwitch），
+并使用自己的 Codex 登录和项目数据。
+
 配置文件保存于 `%APPDATA%\codex-floating-assistant\config.json`；CCSwitch 的凭据不会复制到助手配置或日志中，API 地址和密钥状态不会随状态广播返回给悬浮窗渲染进程。
 
 如需连接非本机的 OpenAI 兼容网关，可在启动终端通过 `OPENAI_BASE_URL` 和 `OPENAI_API_KEY` 注入配置；这些字段仍不会在助手界面展示。CCSwitch 本地模式不需要设置它们。

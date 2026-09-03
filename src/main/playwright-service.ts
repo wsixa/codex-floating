@@ -215,6 +215,7 @@ function formatPlaywrightError(error: unknown): string {
   if (/executable doesn't exist|browserType\.launch/i.test(message)) {
     return 'Chromium is not installed. Run "npx playwright install chromium" once.';
   }
-  if (/timeout/i.test(message)) return 'Codex did not respond before the timeout.';
+  if (/timeout/i.test(message)) return 'Codex did not respond before the timeout. Check the Codex window and try Reconnect.';
+  if (/locator|selector|strict mode|element not found|waiting for/i.test(message)) return 'The Codex page structure may have changed. Open Codex, verify the composer is visible, then press Reconnect.';
   return message.slice(0, 400);
 }

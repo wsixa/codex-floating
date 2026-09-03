@@ -3,11 +3,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-const REQUEST_TIMEOUT = 60_000;
+const REQUEST_TIMEOUT = 300_000;
 const MODEL_LIST_TIMEOUT = 12_000;
 const MAX_TEXT = 30_000;
 const LOCAL_PROXY_BEARER = 'PROXY_MANAGED';
-const MAX_HISTORY_MESSAGES = 24;
+const MAX_HISTORY_MESSAGES = 200;
 const MAX_MODELS = 512;
 const CODEX_MODEL_CATALOG_DIRECTORY = 'model-catalogs';
 const LEGACY_MODEL_CATALOG_FILES = ['cc-switch-model-catalog.json', 'model-catalog.json'] as const;
@@ -75,7 +75,10 @@ interface ApiModelRecord {
 }
 
 export class ApiService {
-  constructor(private readonly modelCatalogLoader: ModelCatalogLoader = defaultModelCatalogLoader) {}
+  private readonly storagePath: string | null;
+  private persistenceQueue: Promise<void> = Promise.resolve();
+  private storageLoaded = false;
+  constructor(private readonly modelCatalogLoader: ModelCatalogLoader = defaultModelCatalogLoader, storagePath?: string) { this.storagePath = storagePath ?? null; }
 
   private config: AppConfig | null = null;
   private apiKey: string | null = null;
@@ -110,6 +113,7 @@ export class ApiService {
       if (baseUrl.protocol !== 'https:' && !(baseUrl.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(baseUrl.hostname))) {
         throw new Error('API base URL must use HTTPS (or localhost HTTP).');
       }
+      await this.loadPersistedConversations();
       this.ensureConversation();
       this.setStatus('connected', 'API connected');
     } catch (error) {
@@ -153,6 +157,7 @@ export class ApiService {
     const id = `api-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.conversations.set(id, { id, title: NEW_CONVERSATION_TITLE, responseId: null, updatedAt: this.nextConversationTimestamp(), isDraft: true, history: [] });
     this.activeConversationId = id;
+    await this.persistConversations();
   }
 
   async listConversations(): Promise<ConversationSummary[]> {
@@ -167,6 +172,7 @@ export class ApiService {
       conversation.isDraft = false;
     }
     conversation.updatedAt = this.nextConversationTimestamp();
+    void this.persistConversations();
     return this.conversationSummaries();
   }
 
@@ -179,6 +185,7 @@ export class ApiService {
   async switchConversation(id: string): Promise<void> {
     if (!this.conversations.has(id)) throw new Error('API conversation is no longer available.');
     this.activeConversationId = id;
+    await this.persistConversations();
   }
 
   /**
@@ -192,6 +199,7 @@ export class ApiService {
       this.activeConversationId = [...this.conversations.values()]
         .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id ?? null;
     }
+    await this.persistConversations();
     return this.conversationSummaries();
   }
 
@@ -301,7 +309,7 @@ export class ApiService {
         body: JSON.stringify(body),
         signal: controller.signal,
       });
-      let data = await response.json() as ApiResponse;
+      let data = await readApiResponse(response);
       const errorMessage = data.error?.message ?? `API request failed (${response.status}).`;
       // Some gateways expose HTTP Responses but only support
       // previous_response_id on WebSocket v2. Retry once with local history.
@@ -320,7 +328,7 @@ export class ApiService {
           body: JSON.stringify(fallbackBody),
           signal: controller.signal,
         });
-        data = await response.json() as ApiResponse;
+        data = await readApiResponse(response);
       }
       if (!response.ok) throw new Error(sanitizeApiError(data.error?.message ?? `API request failed (${response.status}).`));
       const answer = extractOutputText(data);
@@ -335,11 +343,12 @@ export class ApiService {
         conversation.isDraft = false;
       }
       conversation.updatedAt = this.nextConversationTimestamp();
+      await this.persistConversations();
       this.setStatus('connected', 'API connected');
       return answer.slice(0, 50_000);
     } catch (error) {
       const message = error instanceof DOMException && error.name === 'AbortError'
-        ? 'API request timed out after 60 seconds.'
+        ? 'API request timed out after 5 minutes.'
         : error instanceof Error && error.message === 'fetch failed'
           ? 'Unable to reach the OpenAI API. Check network or proxy settings.'
           : error instanceof Error ? error.message : String(error);
@@ -354,6 +363,35 @@ export class ApiService {
     }
   }
 
+  private async loadPersistedConversations(): Promise<void> {
+    if (this.storageLoaded || !this.storagePath) return;
+    this.storageLoaded = true;
+    try {
+      const raw = JSON.parse(await fs.readFile(this.storagePath, 'utf8')) as unknown;
+      if (!Array.isArray(raw)) return;
+      for (const item of raw.slice(0, 512)) {
+        if (!item || typeof item !== 'object') continue;
+        const value = item as Partial<ApiConversation>;
+        if (typeof value.id !== 'string' || typeof value.title !== 'string' || !Array.isArray(value.history)) continue;
+        this.conversations.set(value.id, { id: value.id, title: value.title.slice(0, 256), responseId: typeof value.responseId === 'string' ? value.responseId : null, updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : Date.now(), isDraft: value.isDraft === true, history: value.history.slice(-MAX_HISTORY_MESSAGES) as ApiInputMessage[] });
+      }
+      const latest = [...this.conversations.values()].sort((a,b) => b.updatedAt - a.updatedAt)[0];
+      this.activeConversationId = latest?.id ?? null;
+    } catch { }
+  }
+
+  private async persistConversations(): Promise<void> {
+    const storagePath = this.storagePath;
+    if (!storagePath) return;
+    const snapshot = JSON.stringify([...this.conversations.values()].map((conversation) => ({ ...conversation, history: conversation.history.slice(-MAX_HISTORY_MESSAGES) })));
+    this.persistenceQueue = this.persistenceQueue.catch(() => undefined).then(async () => {
+      await fs.mkdir(path.dirname(storagePath), { recursive: true });
+      const temporaryPath = storagePath + '.tmp';
+      await fs.writeFile(temporaryPath, snapshot, 'utf8');
+      await fs.rename(temporaryPath, storagePath);
+    });
+    await this.persistenceQueue;
+  }
   private ensureConversation(): ApiConversation {
     if (this.activeConversationId && this.conversations.has(this.activeConversationId)) {
       return this.conversations.get(this.activeConversationId)!;
@@ -409,6 +447,18 @@ function defaultModelCatalogLoader(): Promise<ApiModelOption[]> {
   return loadCodexModelCatalog();
 }
 
+async function readApiResponse(response: Response): Promise<ApiResponse> {
+  const contentType = response.headers.get('content-type') ?? '';
+  if (!contentType.toLowerCase().includes('text/event-stream')) return await response.json() as ApiResponse;
+  const text = await response.text();
+  let answer = ''; let id: string | undefined; let error: { message?: string } | undefined;
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.startsWith('data:')) continue;
+    const payload = line.slice(5).trim(); if (!payload || payload === '[DONE]') continue;
+    try { const event = JSON.parse(payload) as Record<string, unknown>; if (typeof event.id === 'string') id = event.id; const type = typeof event.type === 'string' ? event.type : ''; const delta = typeof event.delta === 'string' ? event.delta : typeof event.text === 'string' ? event.text : ''; if (/output_text\.delta|text\.delta/i.test(type) && delta) answer += delta; if (event.error && typeof event.error === 'object') error = event.error as { message?: string }; } catch { }
+  }
+  return error ? { error, id, output_text: answer } : { id, output_text: answer };
+}
 function extractOutputText(data: ApiResponse): string {
   if (typeof data.output_text === 'string') return data.output_text.trim();
   const chunks: string[] = [];

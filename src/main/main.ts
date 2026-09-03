@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, globalShortcut, ipcMain } from 'electron';
 import path from 'node:path';
 import { CaptureService, compressCapture } from './capture-service';
 import { CaptureSelectionService } from './capture-selection';
@@ -13,6 +13,7 @@ import { TrayManager } from './tray-manager';
 import { WindowManager } from './window-manager';
 import { OfficialPageHost } from './official-page-host';
 import { ProjectService } from './project-service';
+import { Logger } from './logger';
 import {
   IPC_CHANNELS,
   isCaptureAndSendInput,
@@ -45,6 +46,18 @@ app.commandLine.appendSwitch('disable-gpu-compositing');
 app.commandLine.appendSwitch('in-process-gpu');
 app.disableHardwareAcceleration();
 
+const singleInstanceLock = app.requestSingleInstanceLock();
+if (!singleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
+
 const startedAt = Date.now();
 let mainWindow: BrowserWindow | null = null;
 let configService: ConfigService;
@@ -65,6 +78,7 @@ let apiSessionService: CodexSessionService;
 let state: AppState;
 let projectService: ProjectService;
 let shuttingDown = false;
+let logger: Logger | null = null;
 let rendererReady = false;
 let boundsPersistTimer: ReturnType<typeof setTimeout> | null = null;
 let rendererRestartAttempts = 0;
@@ -79,6 +93,7 @@ let activeOptimisticConversationTitle: string | null = null;
 
 process.on('unhandledRejection', (reason: unknown) => {
   const message = reason instanceof Error ? reason.message : String(reason);
+  logger?.error('Unhandled promise rejection', { error: message });
   if (state) updateState({ lastError: message.slice(0, 500) });
 });
 
@@ -794,6 +809,7 @@ function registerIpc(): void {
     if (patch.alwaysOnTop !== undefined) windowManager.setAlwaysOnTop(config.alwaysOnTop);
     if (patch.language !== undefined) trayManager.setLanguage(config.language);
     if (patch.launchAtLogin !== undefined) app.setLoginItemSettings({ openAtLogin: config.launchAtLogin });
+    if (patch.shortcut !== undefined) { globalShortcut.unregisterAll(); registerGlobalShortcut(config.shortcut); }
     updateState({ config });
     if (patch.mode !== undefined || patch.codexUrl !== undefined || patch.apiBaseUrl !== undefined) {
       await connectCodex();
@@ -956,6 +972,8 @@ function triggerCapture(): Promise<AppState> {
 }
 
 async function createApplication(): Promise<void> {
+  logger = new Logger();
+  logger.info('Application startup', { rendererUrl: process.env.ELECTRON_RENDERER_URL ?? null, platform: process.platform });
   console.log('[main] createApplication start', { rendererUrl: process.env.ELECTRON_RENDERER_URL ?? null });
   configService = new ConfigService();
   const config = await configService.load();
@@ -968,7 +986,7 @@ async function createApplication(): Promise<void> {
   // Keep the legacy HTTP service available for diagnostics/tests, but the
   // running assistant uses the official app-server so its threads are shared
   // with Codex Desktop and the CLI.
-  apiService = new ApiService();
+  apiService = new ApiService(undefined, path.join(app.getPath('userData'), 'api-conversations.json'));
   codexAppServerService = new CodexAppServerService({
     cwd: process.cwd(),
     attachmentDirectory: path.join(app.getPath('userData'), 'codex-attachments'),
@@ -979,6 +997,7 @@ async function createApplication(): Promise<void> {
   state = initialState(config);
   await refreshProjectContext().catch(() => undefined);
   app.setLoginItemSettings({ openAtLogin: config.launchAtLogin });
+  registerGlobalShortcut(config.shortcut);
   mainWindow = windowManager.create(config, () => broadcast());
   mainWindow.on('move', scheduleBoundsPersistence);
   mainWindow.on('resize', scheduleBoundsPersistence);
@@ -1107,6 +1126,7 @@ app.on('before-quit', (event) => {
   void (async () => {
     try {
       if (bounds) await configService.update({ window: bounds });
+      globalShortcut.unregisterAll();
       trayManager?.destroy();
       captureSelectionService?.dispose();
       await playwrightService?.disconnect();
@@ -1120,3 +1140,17 @@ app.on('before-quit', (event) => {
     }
   })();
 });
+
+function registerGlobalShortcut(accelerator: string | null | undefined): void {
+  if (!accelerator) return;
+  try {
+    const registered = globalShortcut.register(accelerator, () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    });
+    if (!registered) logger?.warn('Global shortcut registration failed', { accelerator });
+    else logger?.info('Global shortcut registered', { accelerator });
+  } catch (error) { logger?.warn('Global shortcut registration threw', { accelerator, error: error instanceof Error ? error.message : String(error) }); }
+}

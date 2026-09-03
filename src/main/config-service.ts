@@ -29,6 +29,7 @@ const DEFAULT_CONFIG: AppConfig = {
   miniMode: false,
   theme: 'system',
   launchAtLogin: false,
+  shortcut: 'CommandOrControl+Shift+Alt+S',
 };
 
 const MIN_WIDTH = 320;
@@ -192,6 +193,7 @@ export class ConfigService {
       miniMode,
       theme: raw.theme === 'light' || raw.theme === 'dark' || raw.theme === 'system' ? raw.theme : defaults.theme,
       launchAtLogin: typeof raw.launchAtLogin === 'boolean' ? raw.launchAtLogin : defaults.launchAtLogin,
+      shortcut: sanitizeShortcut(raw.shortcut, defaults.shortcut),
     };
   }
 }
@@ -224,3 +226,5 @@ function sanitizePageUrl(value: unknown, fallback: string): string | null {
     return null;
   }
 }
+
+function sanitizeShortcut(value: unknown, fallback: string | null | undefined): string | null | undefined { if (value === null) return null; if (typeof value !== 'string') return fallback; const shortcut = value.trim(); if (!shortcut || shortcut.length > 128 || /[\u0000-\u001f\u007f]/u.test(shortcut)) return fallback; return shortcut; }

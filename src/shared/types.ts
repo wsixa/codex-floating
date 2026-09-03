@@ -85,6 +85,7 @@ export interface AppConfig {
   miniMode: boolean;
   theme: ThemeMode;
   launchAtLogin: boolean;
+  shortcut?: string | null;
 }
 
 export type ConnectionState =
@@ -217,6 +218,7 @@ export interface ConfigPatch {
   miniMode?: boolean;
   theme?: ThemeMode;
   launchAtLogin?: boolean;
+  shortcut?: string | null;
   window?: Partial<WindowBounds>;
 }
 
@@ -307,6 +309,7 @@ export function isConfigPatch(value: unknown): value is ConfigPatch {
   if (patch.alwaysOnTop !== undefined && typeof patch.alwaysOnTop !== 'boolean') return false;
   if (patch.miniMode !== undefined && typeof patch.miniMode !== 'boolean') return false;
   if (patch.launchAtLogin !== undefined && typeof patch.launchAtLogin !== 'boolean') return false;
+  if (patch.shortcut !== undefined && patch.shortcut !== null && (typeof patch.shortcut !== 'string' || patch.shortcut.length > 128 || /[\u0000-\u001f\u007f]/u.test(patch.shortcut))) return false;
   if (patch.theme !== undefined && !['system', 'light', 'dark'].includes(String(patch.theme))) return false;
   if (patch.window !== undefined) {
     if (!patch.window || typeof patch.window !== 'object') return false;

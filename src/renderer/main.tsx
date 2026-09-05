@@ -10,6 +10,7 @@ import {
   FolderOpen,
   LoaderCircle,
   Minus,
+  Pin,
   Plus,
   RefreshCw,
   Send,
@@ -247,6 +248,7 @@ export function App() {
             <button role="menuitem" onClick={openSettings}><Settings2 size={15} /><span>{text.settings}</span></button>
           </div>}
         </div>
+        <button className={`pin-toggle no-drag${appState.config.alwaysOnTop ? ' is-active' : ''}`} title={appState.config.alwaysOnTop ? text.unpinWindow : text.pinWindow} aria-label={appState.config.alwaysOnTop ? text.unpinWindow : text.pinWindow} aria-pressed={appState.config.alwaysOnTop} onClick={() => { void window.codexAssistant.toggleAlwaysOnTop().catch(() => undefined); }}><Pin size={16} /></button>
         <button title={text.minimizeWindow} aria-label={text.minimizeWindow} onClick={() => void window.codexAssistant.minimizeWindow()}><Minus size={16} /></button>
         <button className="close" title={text.quitAssistant} aria-label={text.quitAssistant} onClick={() => void window.codexAssistant.quit()}><X size={16} /></button>
       </div>
@@ -262,7 +264,7 @@ export function App() {
         {busy && <div className="api-message api-message-assistant api-message-pending"><div className="api-message-label">Codex</div><div className="api-message-bubble"><LoaderCircle size={14} className="spin" /></div></div>}
       </div>
       {attachments.length > 0 && <div className="attachment-drafts">{attachments.map((item) => <div className="attachment-draft" data-testid="attachment-draft" key={item.id}><span>{item.previewDataUrl ? <img src={item.previewDataUrl} alt={item.name} /> : <FileText size={16} />}</span><b className="attachment-name" title={item.name}>{item.name}</b><button title={text.removeAttachment} aria-label={`${text.removeAttachment}: ${item.name}`} onClick={() => setAttachments((current) => current.filter((value) => value.id !== item.id))}><X size={13} /></button></div>)}</div>}
-      <textarea value={message} onChange={(event) => { messageRef.current = event.target.value; setMessage(event.target.value); }} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void send(); }} placeholder={attachments.length ? text.messageAttachmentPlaceholder : text.messagePlaceholder} aria-label={text.messageAria} rows={4} />
+      <textarea value={message} onChange={(event) => { messageRef.current = event.target.value; setMessage(event.target.value); }} onKeyDown={(event) => { if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.ctrlKey || event.metaKey) return; event.preventDefault(); void send(); }} placeholder={attachments.length ? text.messageAttachmentPlaceholder : text.messagePlaceholder} aria-label={text.messageAria} rows={4} />
       <div className="composer-row no-drag"><div className="attachment-wrap menu-anchor"><button className="attachment-trigger" title={text.addAttachment} aria-label={text.addAttachment} aria-expanded={attachmentMenuOpen} onClick={() => { setAttachmentMenuOpen((value) => !value); setActionMenuOpen(false); }} disabled={busy}><Plus size={18} /></button>{attachmentMenuOpen && <div className="attachment-menu menu-surface" role="menu"><button role="menuitem" onClick={() => void capture(false, false)}><Camera size={14} /> {text.attachFullScreen}</button><button role="menuitem" onClick={() => void capture(true, false)}><Crosshair size={14} /> {text.attachRegion}</button><button role="menuitem" onClick={() => void pickFiles()}><Upload size={14} /> {text.attachFiles}</button></div>}</div><span className="send-hint">{busy ? text.sending : text.sendHint}</span><button className="send" title={text.sendMessage} aria-label={text.sendMessage} onClick={() => void send()} disabled={!canSend}>{busy ? <LoaderCircle size={17} className="spin" /> : <Send size={17} />}</button></div>
     </section>}
     {visibleError && <div className="error-strip" role="alert"><span>{localizeRuntimeMessage(visibleError, appState.config.language)}</span><button title={text.dismissError} aria-label={text.dismissError} onClick={() => setVisibleError(null)}><X size={13} /></button></div>}

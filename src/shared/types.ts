@@ -228,6 +228,7 @@ export interface IpcApi {
   getProjectContext(): Promise<ProjectContext | null>;
   switchProject(projectId: string): Promise<AppState>;
   updateConfig(patch: ConfigPatch): Promise<AppState>;
+  toggleAlwaysOnTop(): Promise<AppState>;
   setApiKey(input: ApiKeyInput): Promise<AppState>;
   clearApiKey(): Promise<AppState>;
   sendMessage(input: SendMessageInput): Promise<AppState>;
@@ -257,6 +258,7 @@ export const IPC_CHANNELS = {
   getProjectContext: 'app:get-project-context',
   switchProject: 'app:switch-project',
   updateConfig: 'app:update-config',
+  toggleAlwaysOnTop: 'app:toggle-always-on-top',
   setApiKey: 'app:set-api-key',
   clearApiKey: 'app:clear-api-key',
   sendMessage: 'app:send-message',

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiService, loadCodexModelCatalog, parseCodexModelCatalog } from './api-service';
+import { ApiService, loadCodexModelCatalog, parseCodexModelCatalog, parseModelList } from './api-service';
 import type { AppConfig } from '../shared/types';
 
 const config: AppConfig = {
@@ -215,12 +215,33 @@ describe('ApiService', () => {
     await expect(service.listModels()).resolves.toEqual([{ id: 'model-a' }, { id: 'model-b' }]);
   });
 
+  it('falls back to id when a model entry has an empty slug', () => {
+    expect(parseModelList({ data: [{ slug: ' ', id: 'fallback-model' }] })).toEqual([{ id: 'fallback-model' }]);
+  });
+
   it('merges live Codex catalog models when CCSwitch returns only a partial list', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: [{ id: 'gateway-model' }] }), { status: 200 })));
     const service = new ApiService(async () => [{ id: 'catalog-model' }, { id: 'gateway-model' }]);
     const proxyConfig = { ...config, apiBaseUrl: 'http://127.0.0.1:15721/v1', apiKeyConfigured: false };
     await service.connect(proxyConfig, null);
     await expect(service.listModels()).resolves.toEqual([{ id: 'gateway-model' }, { id: 'catalog-model' }]);
+  });
+
+  it('merges the local Codex catalog for a direct remote API and deduplicates slug/id variants', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: [
+      { id: 'models/gateway-model', owned_by: 'remote' },
+      { id: 'remote-only' },
+    ] }), { status: 200 })));
+    const service = new ApiService(async () => [
+      { id: 'gateway-model' },
+      { id: 'catalog-only' },
+    ]);
+    await service.connect(config, 'sk-test-secret');
+    await expect(service.listModels()).resolves.toEqual([
+      { id: 'gateway-model', ownedBy: 'remote' },
+      { id: 'remote-only' },
+      { id: 'catalog-only' },
+    ]);
   });
 
   it('keeps an empty catalog usable when CCSwitch has no upstream models yet', async () => {
@@ -243,7 +264,12 @@ describe('ApiService', () => {
         { slug: '' },
         { display_name: 'missing-slug' },
       ],
-    })).toEqual([{ id: 'catalog-model' }, { id: 'fallback-id' }]);
+    })).toEqual([
+      { id: 'catalog-model' },
+      { id: 'fallback-id' },
+      { id: 'hidden-model' },
+      { id: 'not-api-model' },
+    ]);
   });
 
   it('loads and merges multiple Codex catalog files, newest file first', async () => {

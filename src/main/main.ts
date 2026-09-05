@@ -3,7 +3,7 @@ import path from 'node:path';
 import { CaptureService, compressCapture } from './capture-service';
 import { CaptureSelectionService } from './capture-selection';
 import { AttachmentService } from './attachment-service';
-import { ApiService } from './api-service';
+import { ApiService, loadCodexModelCatalog, mergeModelLists } from './api-service';
 import { CodexAppServerService } from './codex-app-server';
 import { CodexDesktopService } from './codex-desktop-service';
 import type { CodexSessionService } from './codex-session';
@@ -556,7 +556,12 @@ function refreshApiModels(): Promise<ApiModelOption[]> {
       const service = apiSessionService;
       if (!service) return [];
       const models = await service.listModels();
-      const effectiveModels = models.length > 0 ? models : state.availableModels;
+      // Desktop/app-server model discovery can also be partial. Merge the
+      // installed Codex catalog before publishing the renderer state so the
+      // toolbar sees the same models as the official client.
+      const localModels = await loadCodexModelCatalog().catch(() => []);
+      const discoveredModels = mergeModelLists(models, localModels);
+      const effectiveModels = discoveredModels.length > 0 ? discoveredModels : state.availableModels;
       if (generation === modelRefreshGeneration && state.config.mode === 'api') {
         const status = service.currentStatus;
         updateState({ connection: status.state, connectionMessage: status.message, page: status.page ?? null, availableModels: effectiveModels, lastError: null });
@@ -823,6 +828,12 @@ function registerIpc(): void {
         await connectCodex();
       }
     }
+    return rendererState();
+  }));
+  secureHandle(IPC_CHANNELS.toggleAlwaysOnTop, () => withOperation(async () => {
+    const config = await configService.update({ alwaysOnTop: !state.config.alwaysOnTop });
+    windowManager.setAlwaysOnTop(config.alwaysOnTop);
+    updateState({ config, lastError: null });
     return rendererState();
   }));
   secureHandle(IPC_CHANNELS.setApiKey, (_event, value: unknown) => withOperation(async () => {

@@ -20,6 +20,7 @@ const api: IpcApi = {
   getProjectContext: (): Promise<ProjectContext | null> => ipcRenderer.invoke(IPC_CHANNELS.getProjectContext),
   switchProject: (projectId: string): Promise<AppState> => ipcRenderer.invoke(IPC_CHANNELS.switchProject, projectId),
   updateConfig: (patch: ConfigPatch) => ipcRenderer.invoke(IPC_CHANNELS.updateConfig, patch),
+  toggleAlwaysOnTop: (): Promise<AppState> => ipcRenderer.invoke(IPC_CHANNELS.toggleAlwaysOnTop),
   setApiKey: (input: ApiKeyInput) => ipcRenderer.invoke(IPC_CHANNELS.setApiKey, input),
   clearApiKey: () => ipcRenderer.invoke(IPC_CHANNELS.clearApiKey),
   sendMessage: (input: SendMessageInput) => ipcRenderer.invoke(IPC_CHANNELS.sendMessage, input),

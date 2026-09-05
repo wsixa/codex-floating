@@ -10,6 +10,8 @@ export interface UiText {
   startupRestart: string;
   minimizeWindow: string;
   quitAssistant: string;
+  pinWindow: string;
+  unpinWindow: string;
   hideAssistant: string;
   reconnect: string;
   openCodex: string;
@@ -121,6 +123,8 @@ const zhCN: UiText = {
   startupRestart: '请从项目终端关闭并重新启动助手。',
   minimizeWindow: '最小化窗口',
   quitAssistant: '退出助手',
+  pinWindow: '固定悬浮窗',
+  unpinWindow: '取消固定悬浮窗',
   hideAssistant: '隐藏助手',
   reconnect: '重新连接',
   openCodex: '打开官方 Codex',
@@ -131,7 +135,7 @@ const zhCN: UiText = {
   messageLabel: '发送内容',
   messagePlaceholder: '输入消息，发送给 Codex…',
   messageAria: '发送给 Codex 的消息',
-  sendHint: 'Ctrl+Enter 发送',
+  sendHint: 'Enter 发送，Ctrl+Enter 换行',
   sending: '发送中',
   capturing: '截取中',
   captureUpload: '截取屏幕并上传',
@@ -232,6 +236,8 @@ const enUS: UiText = {
   startupRestart: 'Close and restart the assistant from the project terminal.',
   minimizeWindow: 'Minimize window',
   quitAssistant: 'Quit assistant',
+  pinWindow: 'Pin window',
+  unpinWindow: 'Unpin window',
   hideAssistant: 'Hide assistant',
   reconnect: 'Reconnect',
   openCodex: 'Open official Codex',
@@ -242,7 +248,7 @@ const enUS: UiText = {
   messageLabel: 'MESSAGE',
   messagePlaceholder: 'Ask Codex anything…',
   messageAria: 'Message to Codex',
-  sendHint: 'Ctrl+Enter to send',
+  sendHint: 'Enter to send, Ctrl+Enter for new line',
   sending: 'Sending',
   capturing: 'Capturing',
   captureUpload: 'Capture screen and upload',

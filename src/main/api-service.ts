@@ -425,11 +425,11 @@ export class ApiService {
       : 'API is not connected. Configure an API key and press Reconnect.';
   }
 
-  private async loadCodexModelsForConfig(config: AppConfig): Promise<ApiModelOption[]> {
-    // The local catalog belongs to the CCSwitch/relay setup. Do not mix it
-    // into a direct remote OpenAI connection, where it could advertise
-    // unavailable models.
-    if (!isLocalProxy(config.apiBaseUrl)) return [];
+  private async loadCodexModelsForConfig(_config: AppConfig): Promise<ApiModelOption[]> {
+    // Codex Desktop and CCSwitch both use the same local catalog. Keep it
+    // available for direct HTTP connections too: the upstream /models route
+    // is often partial, while the catalog is the authoritative list exposed
+    // by the installed Codex client.
     try {
       return await this.modelCatalogLoader();
     } catch {
@@ -532,14 +532,14 @@ export function parseModelList(value: unknown): ApiModelOption[] {
   const models: ApiModelOption[] = [];
   for (const entry of entries) {
     const record = typeof entry === 'string' ? { id: entry } : entry && typeof entry === 'object' ? entry as ApiModelRecord : null;
-    if (record && record.supported_in_api === false) continue;
-    if (record && typeof record.visibility === 'string' && /^(?:hidden|hide)$/i.test(record.visibility.trim())) continue;
     // Codex catalogs use `slug`; OpenAI-compatible /models responses more
     // commonly use `id`. Prefer the stable slug when both are present.
-    const rawId = record?.slug ?? record?.id ?? record?.name ?? record?.model ?? record?.model_name ?? record?.model_id ?? record?.modelId;
+    const rawId = [record?.slug, record?.id, record?.name, record?.model, record?.model_name, record?.model_id, record?.modelId]
+      .find((candidate) => typeof candidate === 'string' && candidate.trim().length > 0);
     const id = typeof rawId === 'string' ? rawId.trim() : '';
-    if (!id || id.length > 256 || /[\u0000-\u001f\u007f]/.test(id) || seen.has(id)) continue;
-    seen.add(id);
+    const key = modelIdentity(id);
+    if (!id || id.length > 256 || /[\u0000-\u001f\u007f]/.test(id) || seen.has(key)) continue;
+    seen.add(key);
     const ownedBy = typeof record?.owned_by === 'string' ? record.owned_by.trim() : typeof record?.ownedBy === 'string' ? record.ownedBy.trim() : undefined;
     models.push(ownedBy ? { id, ownedBy: ownedBy.slice(0, 128) } : { id });
     if (models.length >= MAX_MODELS) break;
@@ -572,18 +572,36 @@ export function parseCodexModelCatalog(value: unknown): ApiModelOption[] {
   return parseModelList(entries);
 }
 
-function mergeModelLists(...lists: ApiModelOption[][]): ApiModelOption[] {
+export function mergeModelLists(...lists: ApiModelOption[][]): ApiModelOption[] {
   const merged: ApiModelOption[] = [];
-  const seen = new Set<string>();
+  const indexes = new Map<string, number>();
   for (const list of lists) {
     for (const model of list) {
-      if (seen.has(model.id)) continue;
-      seen.add(model.id);
+      const key = modelIdentity(model.id);
+      if (!key) continue;
+      const existingIndex = indexes.get(key);
+      if (existingIndex !== undefined) {
+        // Prefer the canonical catalog slug when an upstream uses the
+        // `models/` prefix, while retaining metadata from either source.
+        const existing = merged[existingIndex];
+        const preferredId = existing.id.startsWith('models/') && !model.id.startsWith('models/') ? model.id : existing.id;
+        merged[existingIndex] = {
+          id: preferredId,
+          ownedBy: existing.ownedBy ?? model.ownedBy,
+        };
+        if (!merged[existingIndex].ownedBy) delete merged[existingIndex].ownedBy;
+        continue;
+      }
+      indexes.set(key, merged.length);
       merged.push(model);
       if (merged.length >= MAX_MODELS) return merged;
     }
   }
   return merged;
+}
+
+function modelIdentity(value: string): string {
+  return value.trim().toLowerCase().replace(/^models\//u, '');
 }
 
 /**
